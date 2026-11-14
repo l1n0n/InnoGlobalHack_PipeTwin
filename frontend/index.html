@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PipeTwin — профиль толщины</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script type="module" src="/assets/main.js"></script>
+</head>
+<body>
+  <header><strong>PipeTwin</strong><span id="source">Загрузка…</span></header>
+  <main>
+    <h1>Прогноз толщины стенки</h1>
+    <section class="controls" aria-label="Настройки прогноза">
+      <label>Трубопровод<select id="pipe"></select></label>
+      <label>Порог толщины, мм<input id="threshold" type="number" min="0.01" step="0.1" placeholder="Введите порог"></label>
+      <label>Загрузить прогноз<input id="file" type="file" accept=".csv,text/csv"></label>
+      <button id="download" disabled>Скачать CSV</button>
+    </section>
+    <p id="error" role="alert" hidden></p>
+    <div class="metrics" id="metrics"></div>
+    <nav aria-label="Разделы">
+      <button data-panel="profile" aria-pressed="true">Профиль толщины</button>
+      <button data-panel="inspection" aria-pressed="false">Сегменты для проверки</button>
+      <button data-panel="scenario" aria-pressed="false">Прогноз по годам</button>
+    </nav>
+    <section class="panel" id="profile">
+      <h2>Толщина вдоль трубы</h2>
+      <p>Выберите точку, чтобы открыть прогноз по сегменту. Красный пунктир показывает заданный порог.</p>
+      <div class="legend"><span>Тоньше</span><i></i><span>Толще</span></div>
+      <div id="profile-chart"></div>
+    </section>
+    <section class="panel" id="inspection" hidden>
+      <h2>Сегменты для проверки</h2>
+      <label>Показать<select id="filter"><option value="priority">10% самых тонких</option><option value="critical">На пороге или ниже</option><option value="all">Все сегменты</option></select></label>
+      <div id="table"></div>
+    </section>
+    <section class="panel" id="scenario" hidden>
+      <h2>Как будет меняться толщина</h2>
+      <p>Сценарий предполагает постоянную скорость утонения. Для эксплуатации порог определяют инженерным расчётом.</p>
+      <div class="controls">
+        <label>Сегмент<select id="segment"></select></label>
+        <label>Скорость утонения, мм/год<input id="rate" type="number" min="0" step="0.01"></label>
+        <label>Горизонт, лет<input id="years" type="number" min="1" max="30" value="5"></label>
+      </div>
+      <p id="rate-source"></p>
+      <div class="metrics" id="scenario-metrics"></div>
+      <div id="scenario-chart"></div>
+    </section>
+  </main>
+</body>
+</html>

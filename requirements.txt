@@ -1,0 +1,6 @@
+altair
+fastapi
+pandas
+pywebview; sys_platform == "win32"
+streamlit
+uvicorn

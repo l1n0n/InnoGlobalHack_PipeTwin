@@ -1,3 +1,7 @@
 /.venv/
+/.venv-demo/
+__pycache__/
 given/
 .idea/
+/hackathon/
+/data/
