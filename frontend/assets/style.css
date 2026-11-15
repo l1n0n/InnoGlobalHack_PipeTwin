@@ -66,3 +66,22 @@ th { background: #f1f5f9; position: sticky; top: 0; }
   .loaded-controls { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
 }
 @media (max-width: 440px) { .dashboard-controls, .loaded-controls { grid-template-columns: 1fr; } }
+/* ML-прогноз */
+nav.views { margin: 0 0 18px; }
+.ml-note { margin: 0; font-size: 14px; }
+.ml-error { margin: 0; color: #b91c1c; white-space: pre-wrap; font-size: 13px; }
+.metric small { display: block; color: #4a6076; font-size: 13px; margin-top: 6px; overflow-wrap: anywhere; }
+.metric.wide { flex-basis: 300px; }
+.metric.wide strong { font-size: 16px; overflow-wrap: anywhere; }
+#ml-view .panel + .ml-grid, #ml-view .ml-grid + details { margin-top: 18px; }
+.ml-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.ml-table th, .ml-table td { padding: 8px 9px; white-space: nowrap; }
+@media (max-width: 1100px) { .ml-grid { grid-template-columns: minmax(0, 1fr); } }
+.ml-table { overflow: auto; max-height: 60vh; }
+.ml-table th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
+.ml-table th[aria-sort="ascending"]::after { content: " ▲"; }
+.ml-table th[aria-sort="descending"]::after { content: " ▼"; }
+.ml-table tbody tr { cursor: pointer; }
+.ml-table tbody tr:hover { background: #f6f9fc; }
+.ml-table tr.selected { background: #fff3e0; }
+.ml-table td { font-variant-numeric: tabular-nums; }
