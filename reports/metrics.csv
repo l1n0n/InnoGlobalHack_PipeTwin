@@ -7,5 +7,10 @@ persistence,GroupKFold(5) 500m blocks,635,0.1491,0.8366,
 linear_extrap,GroupKFold(5) 500m blocks,635,0.1517,0.8344,
 ridge,GroupKFold(5) 500m blocks,635,0.1579,0.4577,
 catboost,GroupKFold(5) 500m blocks,635,0.1976,0.4331,
+catboost,LOSO 2022->2023 pooled (per section 1250009490: 0.431; 1250011604: 0.485),55,0.4399,0.4824,
+blend_a=0.25,LOSO 2022->2023 pooled (per section 1250009490: 0.457; 1250011604: 0.523),55,0.4911,0.3634,
+blend_a=0.5,LOSO 2022->2023 pooled (per section 1250009490: 0.481; 1250011604: 0.555),55,0.5354,0.3026,
+blend_a=0.75,LOSO 2022->2023 pooled (per section 1250009490: 0.504; 1250011604: 0.579),55,0.5713,0.3007,
+persistence,LOSO 2022->2023 pooled (per section 1250009490: 0.525; 1250011604: 0.596),55,0.5984,0.3711,
 catboost_p10_p90_raw,temporal 2018->2022 => 2022->2023,55,,,0.5818
 catboost_p10_p90_k=1.5,temporal 2018->2022 => 2022->2023,55,,,0.8

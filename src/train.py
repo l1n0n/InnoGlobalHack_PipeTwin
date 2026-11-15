@@ -93,6 +93,36 @@ def all_approaches(tr: pd.DataFrame, te: pd.DataFrame) -> dict[str, np.ndarray]:
     }
 
 
+ALPHAS = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+
+def blend(thk_prev, cat, alpha: float) -> np.ndarray:
+    return alpha * np.asarray(thk_prev) + (1 - alpha) * np.asarray(cat)
+
+
+def loso(lab: pd.DataFrame) -> tuple[list[dict], float]:
+    """Leave-one-section-out на 2022->2023: train = все 2018->2022 + 2022->2023 другого участка."""
+    te_all = lab[lab["transition"] == "2022->2023"]
+    oof = pd.Series(np.nan, index=te_all.index)
+    per_sec = {}
+    for sid in sorted(te_all["id"].unique()):
+        te = te_all[te_all["id"] == sid]
+        tr = lab[(lab["transition"] == "2018->2022") | ((lab["transition"] == "2022->2023") & (lab["id"] != sid))]
+        oof[te.index] = predict_thk(fit_catboost(tr), te)
+        per_sec[sid] = te.index
+    y, prev = te_all["thk_next"], te_all["thk_prev"]
+    rows, best = [], (-1.0, 1.0)
+    for a in ALPHAS:
+        p = pd.Series(blend(prev, oof, a), index=y.index)
+        name = {1.0: "persistence", 0.0: "catboost"}.get(a, f"blend_a={a}")
+        sec = "; ".join(f"{s}: {r2(y[i], p[i]):.3f}" for s, i in per_sec.items())
+        rows.append({"approach": name, "scheme": f"LOSO 2022->2023 pooled (per section {sec})",
+                     "n_test": len(y), "r2": r2(y, p), "mae": mae(y, p)})
+        if r2(y, p) > best[0] + 1e-9:
+            best = (r2(y, p), a)
+    return rows, best[1]
+
+
 def main():
     f = pd.read_parquet(CACHE / "features.parquet")
     lab = f[f["is_predict"] == 0].reset_index(drop=True)
@@ -112,6 +142,10 @@ def main():
     for k, p in oof.items():
         rows.append({"approach": k, "scheme": "GroupKFold(5) 500m blocks", "n_test": len(lab),
                      "r2": r2(lab["thk_next"], p), "mae": mae(lab["thk_next"], p)})
+
+    loso_rows, alpha = loso(lab)
+    rows += loso_rows
+    (CACHE / "blend_alpha.txt").write_text(str(alpha))
 
     # интервалы на временной валидации
     lo, hi = predict_interval(tr, te)
@@ -138,7 +172,8 @@ def main():
                        ).sort_values("importance", ascending=False)
     imp.to_csv(REPORTS / "importance.csv", index=False)
 
-    print(met.to_string(index=False))
+    print(met[["approach", "scheme", "r2", "mae"]].assign(scheme=met["scheme"].str[:40]).to_string(index=False))
+    print(f"LOSO-selected blend alpha (weight of thk_prev): {alpha}")
     print(f"p10-p90 coverage on 2022->2023: raw {cover:.2f}; widened k={k} -> {cover_k:.2f}")
     print(imp.head(8).round(2).to_string(index=False))
 
