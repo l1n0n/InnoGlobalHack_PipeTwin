@@ -1,0 +1,3 @@
+id,length_m,diameter_mm,nominal_thickness_mm,steel_grade,internal_coating,commissioned_at
+TEST-01,100,219,8,13HFA,no,2018-01-01
+TEST-02,85,219,10,13HFA,no,2018-01-01

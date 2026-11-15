@@ -1,0 +1,21 @@
+id,date,Distance,Wall Thickness,Residual Wall Thickness,Defect Depth in %,Defect Type
+TEST-01,2022-05-01,5,8,7.9,1.25,Corrosion
+TEST-01,2022-05-01,15,8,7.8,2.5,Corrosion
+TEST-01,2022-05-01,25,8,7.75,3.12,Corrosion
+TEST-01,2022-05-01,35,8,7.15,10.62,Corrosion
+TEST-01,2022-05-01,45,8,7.4,7.5,Corrosion
+TEST-01,2022-05-01,55,8,7.65,4.38,Corrosion
+TEST-01,2022-05-01,65,8,7.78,2.81,Corrosion
+TEST-01,2022-05-01,75,8,7.85,1.88,Corrosion
+TEST-01,2022-05-01,85,8,7.9,1.25,Corrosion
+TEST-01,2022-05-01,95,8,7.83,2.19,Corrosion
+TEST-01,2023-05-01,5,8,7.84,2.0,Corrosion
+TEST-01,2023-05-01,15,8,7.68,4.0,Corrosion
+TEST-01,2023-05-01,25,8,7.6,5.0,Corrosion
+TEST-01,2023-05-01,35,8,6.64,17.0,Corrosion
+TEST-01,2023-05-01,45,8,7.04,12.0,Corrosion
+TEST-01,2023-05-01,55,8,7.44,7.0,Corrosion
+TEST-01,2023-05-01,65,8,7.64,4.5,Corrosion
+TEST-01,2023-05-01,75,8,7.76,3.0,Corrosion
+TEST-01,2023-05-01,85,8,7.84,2.0,Corrosion
+TEST-01,2023-05-01,95,8,7.72,3.5,Corrosion
