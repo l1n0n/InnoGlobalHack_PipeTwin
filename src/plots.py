@@ -5,7 +5,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from config import CACHE, REPORTS, T_DATE, WT_NOM
+from config import CACHE, CASE2_ID, REPORTS, T_DATE, T_DATE_CASE2, WT_NOM, WT_NOM_CASE2
 from train import r2
 
 BLUE, ORANGE, GRAY, INK, INK2, SURF = "#2a78d6", "#eb6834", "#8a8984", "#0b0b0b", "#52514e", "#fcfcfb"
@@ -35,17 +35,19 @@ def plot_validation():
 def plot_profile():
     iv = pd.read_csv(REPORTS / "intervals.csv")
     for sid, g in iv.groupby("id"):
+        nom, t = (WT_NOM_CASE2, T_DATE_CASE2) if sid == CASE2_ID else (WT_NOM, T_DATE)
         x = g["segment_id"] * 10
         fig, ax = plt.subplots(figsize=(13, 4.8))
         ax.fill_between(x, g["p10"], g["p90"], color=BLUE, alpha=0.18, lw=0, step="mid", label="прогноз p10–p90")
-        ax.plot(x, g["thk_prev"], color=GRAY, lw=1, drawstyle="steps-mid", label="факт ВТД 2022-07-06")
-        ax.plot(x, g["p50"], color=BLUE, lw=2, drawstyle="steps-mid", label=f"прогноз на {T_DATE}")
-        ax.axhline(WT_NOM, color=INK2, lw=0.8, ls=":")
-        ax.text(x.max(), WT_NOM + 0.05, "номинал 8.0 мм", ha="right", va="bottom", color=INK2, fontsize=9)
+        if g["thk_prev"].notna().any():
+            ax.plot(x, g["thk_prev"], color=GRAY, lw=1, drawstyle="steps-mid", label="факт ВТД 2022-07-06")
+        ax.plot(x, g["p50"], color=BLUE, lw=2 if sid != CASE2_ID else 1, drawstyle="steps-mid", label=f"прогноз на {t}")
+        ax.axhline(nom, color=INK2, lw=0.8, ls=":")
+        ax.text(x.max(), nom + 0.05, f"номинал {nom} мм", ha="right", va="bottom", color=INK2, fontsize=9)
         ax.set_xlabel("расстояние от начала участка, м")
         ax.set_ylabel("мин. остаточная толщина, мм")
         ax.set_title(f"Участок {sid}: толщина стенки по 10-м сегментам", loc="left", fontsize=12)
-        ax.set_ylim(top=WT_NOM + 0.4)
+        ax.set_ylim(top=nom + 0.4)
         ax.margins(x=0.005)
         ax.legend(loc="lower left", frameon=False, ncol=3)
         fig.tight_layout()
