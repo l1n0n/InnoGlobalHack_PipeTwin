@@ -130,6 +130,15 @@ def loso(lab: pd.DataFrame) -> tuple[list[dict], float]:
                      "n_test": len(y), "r2": r2(y, p), "mae": mae(y, p)})
         if r2(y, p) > best[0] + 1e-9:
             best = (r2(y, p), a)
+    # эксперимент 9: persistence минус средняя обрезанная потеря c (c с другого участка). r² внутри участка не меняется.
+    loss = (prev - y).clip(lower=0)
+    p = prev.copy()
+    for sid, i in per_sec.items():
+        p[i] = prev[i] - loss.drop(i).mean()
+    rows.append({"approach": f"persistence_minus_c (c in-sample={loss.mean():.3f}, not used)",
+                 "scheme": "LOSO 2022->2023 pooled", "n_test": len(y), "r2": r2(y, p), "mae": mae(y, p)})
+    rows.append({"approach": "persistence_minus_c in-sample (optimistic)", "scheme": "2022->2023, c on same 55 segm.",
+                 "n_test": len(y), "r2": r2(y, prev - loss.mean()), "mae": mae(y, prev - loss.mean())})
     return rows, best[1]
 
 

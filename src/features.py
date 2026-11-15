@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from config import CACHE, CASE1_IDS, RUN_SHIFT, RUN_SHIFT_M, SEG_LEN, T_DATE, TARGET_IDS
+from config import CACHE, CASE1_IDS, RUN_SHIFT, RUN_SHIFT_AVG_M, RUN_SHIFT_M, SEG_LEN, T_DATE, TARGET_IDS
 from load import load
 from segment import build_segments, segment_grid
 
@@ -79,6 +79,9 @@ def build_features() -> pd.DataFrame:
             # метровый сдвиг: прошлые прогоны пересегментируются в координатах прогона d1
             sp = build_segments(RUN_SHIFT_M[key], d1) if key in RUN_SHIFT_M else seg
             b = prev_block(sp, sid, d0, sh)
+            if key in RUN_SHIFT_AVG_M:  # сдвиг неточен: усредняем толщину прошлого прогона по сетке сдвигов
+                b["thk_prev"] = np.mean([prev_block(build_segments(d, d1), sid, d0, sh)["thk_prev"].values
+                                         for d in RUN_SHIFT_AVG_M[key]], axis=0)
             if i > 0:
                 pp = prev_block(sp, sid, dates[i - 1], sh)
                 yrs = (d0 - pd.Timestamp(dates[i - 1])).days / 365.25

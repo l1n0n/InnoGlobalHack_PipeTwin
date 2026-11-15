@@ -23,7 +23,7 @@ TERRAIN = ["z_rank", "slope", "z_above_min100", "z_above_min500", "is_local_min"
 REGIME_C2 = ["watercut", "v_liquid_true", "v_mix", "pit_corrosion_intensity", "gas_content_rate", "t_mix"]
 REGIME = [f"reg_{c}" for c in REGIME_C2]
 FEATS = TERRAIN + REGIME
-FINAL = "catboost_all"   # выбран по GKF DIR-2 (≈ catboost_terrain) и знаку r при переносе DIR-2 -> DIR-3
+FINAL = "catboost_terrain"   # только рельеф: режим одинаков по длине трубы и вне диапазона обучения, он задаёт лишь уровень s
 
 
 def years(d0, d1) -> float:
@@ -112,7 +112,7 @@ def oof_gkf(tr: pd.DataFrame, models=MODELS, quant: bool = False) -> pd.DataFram
             oof.loc[tr.index[b], k] = fit(k, tr.iloc[a])[0](tr.iloc[b])
         if quant:
             for q in (10, 90):
-                oof.loc[tr.index[b], f"q{q}"] = fit("catboost_all", tr.iloc[a], f"Quantile:alpha={q / 100}")[0](tr.iloc[b])
+                oof.loc[tr.index[b], f"q{q}"] = fit(FINAL, tr.iloc[a], f"Quantile:alpha={q / 100}")[0](tr.iloc[b])
     return oof
 
 
@@ -197,7 +197,7 @@ if __name__ == "__main__":
         {"approach": f"case2_final_p10_p90_k={k}", "scheme": sch, "n_test": len(d2), "coverage": round(cov_k, 4)}])],
         ignore_index=True)
     model = fit(FINAL, d2)[1]
-    imp = pd.DataFrame({"feature": FEATS, "importance": model.get_feature_importance().round(2)}
+    imp = pd.DataFrame({"feature": TERRAIN if FINAL.endswith("terrain") else FEATS, "importance": model.get_feature_importance().round(2)}
                        ).sort_values("importance", ascending=False)
     print(imp.head(6).to_string(index=False))
     # уровень: средняя скорость DIR-3 (обводнённость 0.12 %, как у 1250009583) / средняя скорость DIR-2 (88 %)
