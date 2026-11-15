@@ -163,8 +163,7 @@
           <p><code>id</code> — ID участка, <code>segment_id</code> — номер 10-метрового сегмента с нуля, <code>thickness_pred</code> — прогноз остаточной толщины стенки в мм.</p>
           <div class="controls">
             <label>Источник прогноза<select id="export-model"><option value="ml">ML</option><option value="physics">Физическая модель · NORSOK M-506</option></select></label>
-            <label id="export-first-control" hidden>Первый участок<select id="export-first"></select></label>
-            <label id="export-second-control" hidden>Второй участок<select id="export-second"></select></label>
+            <label id="export-pipe-control" hidden>Участок<select id="export-pipe"></select></label>
             <button type="button" id="download-result">Скачать result.csv</button>
           </div>
           <p id="result-status" role="status"></p>

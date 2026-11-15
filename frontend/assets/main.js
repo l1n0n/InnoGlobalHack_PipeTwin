@@ -421,7 +421,7 @@ function setData(data, name) {
   pipes = data;
   setMlComparisonPipes(pipes, plotOptions);
   resultPipes.clear();
-  for (const id of ["export-first", "export-second"]) $(id).replaceChildren();
+  $("export-pipe").replaceChildren();
   const first = Math.max(currentYear, ...data.map((pipe) => Number(pipe.commissioned_at?.slice(0, 4) ?? 0)));
   $("start-year").value = first;
   $("years").value = first + 5;
@@ -614,28 +614,32 @@ function csvCell(value) {
 function updateExport() {
   const physical = $("export-model").value === "physics";
   const ids = [...resultPipes.keys()];
-  for (const [index, id] of ["export-first", "export-second"].entries()) {
-    const select = $(id);
-    $(id + "-control").hidden = !physical || ids.length < 2;
-    if (select.options.length !== ids.length) {
-      const previous = select.value;
-      select.replaceChildren(...ids.map((id) => new Option(id, id)));
-      select.value = resultPipes.has(previous) ? previous : ids[index] ?? "";
-    }
+  const select = $("export-pipe");
+  $("export-pipe-control").hidden = !physical || !ids.length;
+  const options = ids.map((id) => new Option(id, id));
+  if (ids.length > 1) options.push(new Option("Все рассчитанные", ""));
+  if (select.options.length !== options.length) {
+    const previous = select.value;
+    const hadOptions = select.options.length > 0;
+    select.replaceChildren(...options);
+    if (hadOptions && options.some((option) => option.value === previous)) select.value = previous;
   }
-  const distinct = $("export-first").value !== $("export-second").value;
-  $("download-result").disabled = exporting || (physical && (ids.length < 2 || !distinct));
+  $("download-result").disabled = exporting || (physical && !ids.length);
   if (!exporting) {
-    $("result-status").textContent = !physical ? ""
-      : ids.length < 2 ? "Рассчитайте физический прогноз для двух участков."
-      : !distinct ? "Выберите два разных участка." : "";
+    $("result-status").textContent = !physical || ids.length ? ""
+      : pipes.some((pipe) => pipe.coordinate_basis !== "inspection_order")
+        ? "Рассчитайте физический прогноз для участка."
+        : "Загрузите паспорт или профиль с 10-метровыми сегментами.";
   }
 }
 
-for (const id of ["export-model", "export-first", "export-second"]) $(id).addEventListener("change", updateExport);
+$("export-model").addEventListener("change", updateExport);
 $("download-result").addEventListener("click", async () => {
   if (exporting) return;
   const physical = $("export-model").value === "physics";
+  const selectedId = $("export-pipe").value;
+  const forecasts = selectedId ? [resultPipes.get(selectedId)] : [...resultPipes.values()];
+  if (physical && !forecasts.length) return;
   exporting = true;
   $("export-model").disabled = true;
   updateExport();
@@ -646,7 +650,7 @@ $("download-result").addEventListener("click", async () => {
     const response = physical
       ? await apiRequest("/api/result", {
         method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(["export-first", "export-second"].map((id) => resultPipes.get($(id).value))),
+        body: JSON.stringify(forecasts),
       })
       : await apiRequest("/api/ml/result.csv");
     if (!response.ok) {
