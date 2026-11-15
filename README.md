@@ -42,6 +42,8 @@
 - `backend/validation.py` — историческая проверка и метрики.
 - `backend/submission.py` — проверка и сборка `result.csv` в интерфейсе.
 - `backend/web_api.py` — маршруты FastAPI и раздача фронтенда.
+- `backend/ml_results.py` — чтение `result.csv` и `reports/` для `/api/ml/*` (pipes, profile, top10, metrics,
+  importance, result.csv, POST run). Если файлов нет, API отвечает 503 с просьбой запустить `main.py`.
 - `frontend/` — HTML, CSS и JavaScript без сборки (Plotly.js с CDN); `frontend/legacy/` — прежний прототип на Streamlit и pywebview.
 
 Прочее:
@@ -62,8 +64,8 @@ uv run pytest -q           # проверка формата result.csv
 ```
 
 Нужен файл `data/raw_csv/all.xlsx`. Результат: `result.csv` в корне и отчёты в `reports/`.
-Зависимости пайплайна описаны в `pyproject.toml` / `uv.lock`; список для жюри получен
-`uv pip compile pyproject.toml -o requirements.txt`.
+Зависимости пайплайна и бэкенда описаны в одном `pyproject.toml` / `uv.lock`; список для жюри получен
+`uv pip compile pyproject.toml --universal --extra legacy -o requirements.txt`.
 
 ### б) Веб-приложение на Windows
 
@@ -75,9 +77,10 @@ py -3 -m venv .venv-demo
 .\.venv-demo\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Корневой `requirements.txt` состоит из двух частей: вверху пакеты веб-приложения (`fastapi`, `uvicorn`,
-`neqsim==3.9.1`, `streamlit`, `altair`, `pywebview` для Windows), ниже — зафиксированные зависимости пайплайна.
-Одна команда ставит и то, и другое. `.cmd`-файлы ищут Python именно в `.venv-demo`.
+Корневой `requirements.txt` целиком сгенерирован из `pyproject.toml` и фиксирует версии пайплайна
+и веб-приложения (`fastapi`, `uvicorn`, `neqsim`, а также `streamlit`, `altair`, `pywebview` для старого прототипа).
+Одна команда ставит и то, и другое. `neqsim` поднят с 3.9.1 до 3.29: 3.9.1 требует `pandas<3`, а пайплайн `pandas>=3.1`;
+расчёт NORSOK M-506 на обеих версиях даёт одинаковые числа. `.cmd`-файлы ищут Python именно в `.venv-demo`.
 
 **Java для NeqSim.** Для сценария NORSOK M-506 установите 64-битную Java 17 или новее и укажите каталог установки
 в `JAVA_HOME`. NeqSim запускает JVM при первом расчёте CO₂. Без Java можно задавать скорость коррозии вручную.

@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from . import ml_results
 from .corrosion import co2_rate
 from .pipeline_data import (
     PROJECT_ROOT,
@@ -103,6 +104,51 @@ def export_result(pipes: list[ResultPipe]):
             "Access-Control-Expose-Headers": "X-Result-Coverage",
         },
     )
+
+
+def _ml(fn, *args):
+    try:
+        return fn(*args)
+    except ml_results.MissingResults as error:
+        raise HTTPException(503, str(error)) from error
+    except KeyError as error:
+        raise HTTPException(404, f"Unknown pipe id {args[0] if args else ''}; known: {list(ml_results.CASES)}") from error
+
+
+@app.get("/api/ml/pipes")
+def ml_pipes():
+    return _ml(ml_results.pipes)
+
+
+@app.get("/api/ml/profile/{pipe_id}")
+def ml_profile(pipe_id: str):
+    return _ml(ml_results.profile, pipe_id)
+
+
+@app.get("/api/ml/top10/{pipe_id}")
+def ml_top10(pipe_id: str):
+    return _ml(ml_results.top10, pipe_id)
+
+
+@app.get("/api/ml/metrics")
+def ml_metrics():
+    return _ml(ml_results.metrics)
+
+
+@app.get("/api/ml/importance/{pipe_id}")
+def ml_importance(pipe_id: str):
+    return _ml(ml_results.importance, pipe_id)
+
+
+@app.get("/api/ml/result.csv")
+def ml_result_csv():
+    _ml(ml_results.table, "result")
+    return FileResponse(ml_results.RESULT, media_type="text/csv", filename="result.csv")
+
+
+@app.post("/api/ml/run")
+async def ml_run():
+    return await run_in_threadpool(ml_results.run_pipeline)
 
 
 @app.get("/")
