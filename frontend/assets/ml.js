@@ -1,0 +1,292 @@
+// Вкладка «ML-прогноз»: показывает выход пайплайна main.py (result.csv и reports/) через /api/ml/*.
+const $ = (id) => document.getElementById(id);
+const fmt = (value, digits = 2) => value == null ? "—"
+  : value.toLocaleString("ru-RU", {minimumFractionDigits: digits, maximumFractionDigits: digits});
+const escapeHtml = (text) => String(text).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"})[c]);
+const API = window.location.port === "5173" ? "http://127.0.0.1:8000" : "";
+const CONFIG = {responsive: true, scrollZoom: true, displayModeBar: false, doubleClick: "reset"};
+const FONT = {family: 'Inter, "Segoe UI", sans-serif', color: "#425b73", size: 13};
+const AXIS = {gridcolor: "#e3ebf3", zeroline: false, automargin: true};
+
+const digits = () => state.pipe?.case === 2 ? 3 : 2;
+const state = {pipes: [], metrics: null, pipe: null, profile: [], top: [], sort: {key: "thickness_pred", dir: 1}, selected: null, loaded: false};
+
+async function api(path, options) {
+  let response;
+  try {
+    response = await fetch(API + path, options);
+  } catch {
+    throw new Error("API недоступен. Запустите Start Backend.cmd и обновите страницу.");
+  }
+  if (!response.ok) {
+    let detail = response.statusText;
+    try { detail = (await response.json()).detail ?? detail; } catch { /* not JSON */ }
+    throw new Error(detail);
+  }
+  return response;
+}
+const json = async (path, options) => (await api(path, options)).json();
+
+function showError(message) {
+  $("ml-error").textContent = message ?? "";
+  $("ml-error").hidden = !message;
+}
+
+function metric(label, value, note = "", wide = false) {
+  return `<div class="metric${wide ? " wide" : ""}"><span>${label}</span><strong>${value}</strong>${note ? `<small>${note}</small>` : ""}</div>`;
+}
+
+function showView(id) {
+  for (const button of document.querySelectorAll("[data-view]")) {
+    const active = button.dataset.view === id;
+    button.setAttribute("aria-pressed", active);
+    $(button.dataset.view).hidden = !active;
+  }
+  if (id === "ml-view") {
+    if (location.hash !== "#ml") history.replaceState(null, "", "#ml");
+    if (!state.loaded) loadAll();
+    else renderAll();
+  } else if (location.hash === "#ml") {
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+}
+
+async function loadAll(keepPipe = false) {
+  showError("");
+  try {
+    const [pipes, metrics] = await Promise.all([json("/api/ml/pipes"), json("/api/ml/metrics")]);
+    state.pipes = pipes;
+    state.metrics = metrics;
+    state.loaded = true;
+    const previous = keepPipe ? $("ml-pipe").value : null;
+    $("ml-pipe").replaceChildren(...pipes.map((p) => new Option(`Кейс ${p.case} · ${p.id}`, p.id)));
+    if (previous && pipes.some((p) => p.id === previous)) $("ml-pipe").value = previous;
+    await loadPipe();
+  } catch (failure) {
+    showError(failure.message);
+  }
+}
+
+async function loadPipe() {
+  const id = $("ml-pipe").value;
+  state.pipe = state.pipes.find((p) => p.id === id);
+  state.selected = null;
+  showError("");
+  try {
+    const [profile, top, importance] = await Promise.all([
+      json(`/api/ml/profile/${id}`), json(`/api/ml/top10/${id}`), json(`/api/ml/importance/${id}`),
+    ]);
+    const byId = new Map(profile.map((r) => [r.segment_id, r]));
+    state.profile = profile;
+    state.top = top.map((r, i) => ({...byId.get(r.segment_id), ...r, rank: i + 1}));
+    state.importance = importance;
+    renderAll();
+  } catch (failure) {
+    showError(failure.message);
+  }
+}
+
+function renderAll() {
+  if (!state.pipe) return;
+  renderInfo();
+  renderMetrics();
+  renderChart();
+  renderTable();
+  renderImportance();
+  renderApproaches();
+}
+
+function renderInfo() {
+  const p = state.pipe;
+  $("ml-pipe-info").textContent = `Кейс ${p.case}, прогноз на ${p.t_date}. Сегментов: ${p.segments}.`;
+  $("ml-profile-title").textContent = `Прогноз толщины вдоль трубы ${p.id} на ${p.t_date}`;
+}
+
+function renderMetrics() {
+  const p = state.pipe;
+  const c = state.metrics.cases.find((item) => item.id === p.id) ?? {};
+  $("ml-metrics").innerHTML = [
+    metric("Итоговый r² (валидация)", fmt(c.r2, 3), escapeHtml(c.final_approach ?? "")),
+    metric("Схема валидации", escapeHtml(c.validation ?? "—"), c.n_test ? `тестовых сегментов: ${c.n_test}` : "", true),
+    metric("Покрытие p10–p90", c.interval_coverage == null ? "—" : `${fmt(c.interval_coverage * 100, 0)} %`, "цель 80 %"),
+    metric("Мин. толщина, мм", fmt(p.min_thickness, digits()), `средняя ${fmt(p.mean_thickness, digits())} мм`),
+  ].join("");
+}
+
+function plotly(container) {
+  if (window.Plotly) return window.Plotly;
+  container.textContent = "Не удалось загрузить Plotly. Проверьте подключение к интернету и обновите страницу.";
+  return null;
+}
+
+function renderChart() {
+  const container = $("ml-chart");
+  const P = plotly(container);
+  if (!P || !container.getClientRects().length) return;
+  const rows = state.profile;
+  const x = rows.map((r) => r.segment_id * 10);
+  const ids = rows.map((r) => r.segment_id);
+  const traces = [
+    {x, y: rows.map((r) => r.p90), type: "scatter", mode: "lines", line: {width: 0}, hoverinfo: "skip", showlegend: false},
+    {x, y: rows.map((r) => r.p10), type: "scatter", mode: "lines", line: {width: 0}, fill: "tonexty",
+      fillcolor: "rgba(37, 99, 168, 0.16)", name: "Интервал p10–p90", customdata: rows.map((r) => [r.p10, r.p90]),
+      hovertemplate: `p10–p90: %{customdata[0]:.${digits()}f}–%{customdata[1]:.${digits()}f} мм<extra></extra>`},
+  ];
+  if (state.pipe.case === 1) {
+    traces.push({x, y: rows.map((r) => r.thk_prev), type: "scatter", mode: "lines", name: "ВТД 2022 (со сдвигом)",
+      line: {color: "#94a3b8", width: 1.5, dash: "dot"}, hovertemplate: "ВТД 2022: %{y:.2f} мм<extra></extra>"});
+  }
+  traces.push({x, y: rows.map((r) => r.thickness_pred), customdata: ids, type: "scatter", mode: "lines",
+    name: "Прогноз", line: {color: "#2563a8", width: 2.5},
+    hovertemplate: `Сегмент № %{customdata} · %{x} м<br>Прогноз: %{y:.${digits()}f} мм<extra></extra>`});
+  traces.push({x: state.top.map((r) => r.segment_id * 10), y: state.top.map((r) => r.thickness_pred),
+    customdata: state.top.map((r) => r.segment_id), type: "scatter", mode: "markers", name: "10% самых тонких",
+    marker: {color: "#dc2626", size: 6, line: {color: "#fff", width: 1}},
+    hovertemplate: "Опасный сегмент № %{customdata}: %{y:.2f} мм<extra></extra>"});
+  const shapes = [];
+  const selected = rows.find((r) => r.segment_id === state.selected);
+  if (selected) {
+    traces.push({x: [selected.segment_id * 10], y: [selected.thickness_pred], customdata: [selected.segment_id],
+      type: "scatter", mode: "markers", name: "Выбранный сегмент",
+      marker: {color: "#f59e0b", size: 14, symbol: "diamond", line: {color: "#7c2d12", width: 1.5}},
+      hovertemplate: "Выбран № %{customdata}: %{y:.2f} мм<extra></extra>"});
+    shapes.push({type: "line", xref: "x", yref: "paper", x0: selected.segment_id * 10, x1: selected.segment_id * 10,
+      y0: 0, y1: 1, line: {color: "#f59e0b", width: 1.5, dash: "dash"}});
+  }
+  const layout = {
+    uirevision: state.pipe.id, autosize: true, dragmode: "pan", hovermode: "x unified",
+    margin: {l: 55, r: 18, t: 14, b: 52}, paper_bgcolor: "#fff", plot_bgcolor: "#fff", font: FONT, shapes,
+    legend: {orientation: "h", y: 1.02, yanchor: "bottom", x: 0},
+    xaxis: {...AXIS, title: {text: "Дистанция по участку, м"}},
+    yaxis: {...AXIS, title: {text: "Толщина, мм"}},
+  };
+  P.react(container, traces, layout, CONFIG).then(() => {
+    if (container.dataset.bound) return;
+    container.dataset.bound = "1";
+    container.on("plotly_click", ({points}) => {
+      const id = points?.find((pt) => Number.isInteger(pt.customdata))?.customdata;
+      if (id != null) select(id, true);
+    });
+  }).catch((failure) => {
+    console.error(failure);
+    container.textContent = "Не удалось отрисовать график.";
+  });
+}
+
+function select(id, fromChart = false) {
+  state.selected = state.selected === id && !fromChart ? null : id;
+  renderChart();
+  renderTable();
+  if (fromChart) $("ml-table").querySelector("tr.selected")?.scrollIntoView({block: "nearest"});
+}
+
+const COLUMNS = [
+  {key: "rank", label: "№"},
+  {key: "segment_id", label: "Сегмент"},
+  {key: "distance", label: "Дистанция, м", value: (r) => r.segment_id * 10, format: (r) => `${r.segment_id * 10}–${r.segment_id * 10 + 10}`},
+  {key: "thickness_pred", label: "Прогноз, мм", format: (r) => fmt(r.thickness_pred, digits())},
+  {key: "p10", label: "p10, мм", format: (r) => fmt(r.p10, digits())},
+  {key: "p90", label: "p90, мм", format: (r) => fmt(r.p90, digits())},
+  {key: "thk_prev", label: "ВТД 2022, мм", format: (r) => fmt(r.thk_prev), case: 1},
+];
+
+function renderTable() {
+  const columns = COLUMNS.filter((c) => !c.case || c.case === state.pipe.case);
+  const {key, dir} = state.sort;
+  const col = columns.find((c) => c.key === key) ?? columns[0];
+  const value = col.value ?? ((r) => r[col.key]);
+  const rows = [...state.top].sort((a, b) => dir * ((value(a) ?? Infinity) - (value(b) ?? Infinity)));
+  const head = columns.map((c) => `<th data-sort="${c.key}" scope="col" tabindex="0"${c.key === col.key
+    ? ` aria-sort="${dir > 0 ? "ascending" : "descending"}"` : ""}>${c.label}</th>`).join("");
+  const body = rows.map((r) => `<tr data-ml-segment="${r.segment_id}"${r.segment_id === state.selected ? ' class="selected"' : ""}>${
+    columns.map((c) => `<td>${c.format ? c.format(r) : r[c.key]}</td>`).join("")}</tr>`).join("");
+  $("ml-table").innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function renderImportance() {
+  const container = $("ml-importance");
+  const P = plotly(container);
+  if (!P || !container.getClientRects().length) return;
+  const rows = [...state.importance].reverse();
+  container.style.height = `${Math.max(240, rows.length * 22 + 70)}px`;
+  $("ml-importance-note").textContent = state.pipe.case === 1
+    ? "CatBoost кейса 1. Сам прогноз — толщина по ВТД 2022, модель задаёт интервалы p10–p90."
+    : "CatBoost кейса 2 по признакам рельефа: они определяют порядок сегментов.";
+  P.react(container, [{
+    type: "bar", orientation: "h", x: rows.map((r) => r.importance), y: rows.map((r) => r.feature),
+    marker: {color: "#2563a8"}, hovertemplate: "%{y}: %{x:.1f}<extra></extra>",
+  }], {
+    autosize: true, margin: {l: 10, r: 18, t: 8, b: 44}, paper_bgcolor: "#fff", plot_bgcolor: "#fff", font: FONT,
+    xaxis: {...AXIS, title: {text: "Важность"}}, yaxis: {...AXIS, gridcolor: "rgba(0,0,0,0)", tickmode: "linear", dtick: 1},
+  }, {...CONFIG, scrollZoom: false}).catch((failure) => console.error(failure));
+}
+
+function renderApproaches() {
+  const rows = state.metrics.approaches;
+  const cell = (v) => v == null ? "—" : typeof v === "number" ? fmt(v, Number.isInteger(v) ? 0 : 4) : escapeHtml(v);
+  $("ml-approaches").innerHTML = `<table><thead><tr><th>Подход</th><th>Схема</th><th>n</th><th>r²</th><th>MAE</th><th>Покрытие</th></tr></thead><tbody>${
+    rows.map((r) => `<tr><td>${cell(r.approach)}</td><td>${cell(r.scheme)}</td><td>${cell(r.n_test)}</td><td>${cell(r.r2)}</td><td>${cell(r.mae)}</td><td>${cell(r.coverage)}</td></tr>`).join("")
+  }</tbody></table>`;
+}
+
+async function download() {
+  showError("");
+  try {
+    const blob = await (await api("/api/ml/result.csv")).blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "result.csv";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  } catch (failure) {
+    showError(failure.message);
+  }
+}
+
+async function run() {
+  const button = $("ml-run");
+  button.disabled = true;
+  $("ml-run-status").hidden = false;
+  $("ml-status").hidden = true;
+  showError("");
+  try {
+    const result = await json("/api/ml/run", {method: "POST"});
+    if (result.status === "ok") {
+      await loadAll(true);
+      $("ml-status").textContent = `Пересчитано за ${fmt(result.duration_s, 1)} с.`;
+      $("ml-status").hidden = false;
+    } else if (result.status === "busy") {
+      showError("Пересчёт уже идёт. Подождите и обновите страницу.");
+    } else {
+      showError(`main.py завершился с ошибкой (${result.status}).\n${result.log_tail}`);
+    }
+  } catch (failure) {
+    showError(failure.message);
+  } finally {
+    button.disabled = false;
+    $("ml-run-status").hidden = true;
+  }
+}
+
+document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
+$("ml-pipe").addEventListener("change", loadPipe);
+$("ml-download").addEventListener("click", download);
+$("ml-run").addEventListener("click", run);
+$("ml-table").addEventListener("click", (event) => {
+  const th = event.target.closest("th[data-sort]");
+  if (th) {
+    const key = th.dataset.sort;
+    state.sort = {key, dir: state.sort.key === key ? -state.sort.dir : 1};
+    renderTable();
+    return;
+  }
+  const row = event.target.closest("tr[data-ml-segment]");
+  if (row) select(Number(row.dataset.mlSegment));
+});
+$("ml-table").addEventListener("keydown", (event) => {
+  if ((event.key === "Enter" || event.key === " ") && event.target.matches("th[data-sort]")) {
+    event.preventDefault();
+    event.target.click();
+  }
+});
+if (location.hash === "#ml") showView("ml-view");

@@ -7,12 +7,17 @@
   <link rel="stylesheet" href="/assets/style.css">
   <script defer src="https://cdn.plot.ly/plotly-4.1.1.min.js"></script>
   <script type="module" src="/assets/main.js"></script>
+  <script type="module" src="/assets/ml.js"></script>
 </head>
 <body>
   <header><strong>PipeTwin</strong><span id="source">CSV не загружен</span></header>
   <main>
     <h1>Состояние трубопровода</h1>
-    <div class="dashboard">
+    <nav class="views" aria-label="Режим">
+      <button data-view="csv-view" aria-pressed="true">Профиль по CSV</button>
+      <button data-view="ml-view" aria-pressed="false">ML-прогноз</button>
+    </nav>
+    <div class="dashboard" id="csv-view">
       <aside class="dashboard-controls" aria-labelledby="controls-heading">
         <h2 id="controls-heading">Данные и настройки</h2>
         <details><summary>Дата среза ВТД</summary>
@@ -135,6 +140,45 @@
             <div id="result-chart" class="plot" role="group" aria-label="Профиль толщины из result.csv"></div>
           </div>
         </section>
+      </div>
+    </div>
+    <div class="dashboard" id="ml-view" hidden>
+      <aside class="dashboard-controls" aria-labelledby="ml-controls-heading">
+        <h2 id="ml-controls-heading">Прогноз модели</h2>
+        <label>Трубопровод<select id="ml-pipe"></select></label>
+        <p id="ml-pipe-info" class="ml-note"></p>
+        <button id="ml-download" type="button">Скачать result.csv</button>
+        <button id="ml-run" type="button">Пересчитать</button>
+        <div id="ml-run-status" class="upload-status" role="status" hidden>
+          Запускаем main.py, это около 10–20 с…
+          <div class="loading-track" aria-hidden="true"></div>
+        </div>
+        <p id="ml-status" class="ml-note" role="status" hidden></p>
+        <p id="ml-error" class="ml-error" role="alert" hidden></p>
+      </aside>
+      <div class="dashboard-content">
+        <div class="metrics" id="ml-metrics"></div>
+        <section class="panel">
+          <h2 id="ml-profile-title">Прогноз толщины вдоль трубы</h2>
+          <p>Линия: прогноз на дату T, полоса: интервал p10–p90. Колёсико меняет масштаб, перетаскивание сдвигает график, двойной щелчок возвращает исходный вид. Щелчок по строке таблицы отмечает сегмент на графике.</p>
+          <div id="ml-chart" class="plot" role="group" aria-label="Профиль прогнозной толщины"></div>
+        </section>
+        <div class="ml-grid">
+          <section class="panel">
+            <h2>10% самых тонких сегментов</h2>
+            <p>Щелчок по заголовку столбца сортирует таблицу.</p>
+            <div id="ml-table" class="ml-table"></div>
+          </section>
+          <section class="panel">
+            <h2>Важность признаков</h2>
+            <p id="ml-importance-note"></p>
+            <div id="ml-importance" class="plot" role="group" aria-label="Важность признаков модели"></div>
+          </section>
+        </div>
+        <details class="scenario-detail">
+          <summary>Все подходы и схемы валидации</summary>
+          <div id="ml-approaches" class="ml-table"></div>
+        </details>
       </div>
     </div>
   </main>
