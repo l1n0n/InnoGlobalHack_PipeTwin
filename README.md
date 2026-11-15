@@ -3,7 +3,14 @@
 ## Структура проекта
 
 - `frontend/` — HTML, CSS и JavaScript веб-интерфейса.
-- `backend/` — FastAPI, проверка CSV и подготовка данных для демо.
+- `backend/pipeline_data.py` — импорт паспортов, ВТД, УЗТ и профилей CSV.
+- `backend/forecasting.py` — расчёт остаточной толщины для двух кейсов.
+- `backend/corrosion.py` — модель CO₂-коррозии и расчёт утонения.
+- `backend/validation.py` — историческая проверка и метрики.
+- `backend/submission.py` — проверка и сборка `result.csv`.
+- `backend/web_api.py` — маршруты FastAPI и раздача фронтенда.
+- `pipeline_forecast.ipynb` — запуск, экспорт и графики.
+- `docs/calculation-methods.md` — описание расчёта и его ограничений.
 - `tests/` — синтетические данные для двух труб.
 
 ## Локальный интерфейс
@@ -107,14 +114,22 @@ Jupyter позволяет показать ход расчёта на защи�
 
 ```powershell
 .\.venv-demo\Scripts\python.exe -m pip install jupyterlab matplotlib
-.\.venv-demo\Scripts\python.exe -m jupyterlab corrosion_scenario.ipynb
+.\.venv-demo\Scripts\python.exe -m jupyterlab pipeline_forecast.ipynb
 ```
 
 Если ноутбук уже был открыт до обновления кода, перезапустите ядро Jupyter.
-Выберите **Run → Run All Cells**. В режиме `demo_mode = True` ноутбук читает
+Выберите **Run → Run All Cells**. По умолчанию ноутбук строит базовый прогноз
+для участков `1250022871` (525 сегментов) и `1250009583` (1 475 сегментов),
+записывает `result.csv` в корне проекта и показывает оба профиля из этого файла.
+При `target_date = None` используется общая последняя дата в режимных данных
+(24.11.2024). Для сдачи укажите подтверждённую дату T в `target_date`.
+
+[Методы расчёта и историческая проверка](docs/calculation-methods.md).
+
+В режиме `demo_mode = True` ноутбук читает
 `tests/result.csv`, записывает `result_demo.csv` и строит графики обеих труб
-прямо под ячейкой. Для реального `result.csv` задайте `demo_mode = False`,
-укажите существующий входной CSV в `real_source` и при необходимости измените `passport`. Если
+прямо под ячейкой. Для готового прогноза задайте `demo_mode = False`,
+укажите входной CSV в `real_source` и при необходимости измените `passport`. Если
 во входном файле больше двух участков, задайте `submission_ids`. Режим
 `use_precomputed_result = False` рассчитывает сценарий по входной толщине.
 Для запуска без NeqSim задайте `manual_rate` в мм/год.

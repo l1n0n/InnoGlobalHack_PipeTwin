@@ -1,7 +1,27 @@
+# Local Python environments and caches
 /.venv/
 /.venv-demo/
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+/.coverage
+
+# Local editor configuration and secrets
+/.idea/
+/.env
+/.env.*
+!/.env.example
+
+# Local competition inputs
 given/
-.idea/
 /hackathon/
 /data/
+
+# Generated CSV files (test fixtures remain versioned)
+/result.csv
+/result_demo.csv
+/corrosion_forecast.csv
+/pipetwin-profile.csv
