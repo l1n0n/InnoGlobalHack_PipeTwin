@@ -9,6 +9,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from config import CACHE, REPORTS, SEED
+from segment import build_segments
 
 np.random.seed(SEED)
 
@@ -66,11 +67,20 @@ def widen(p50, lo, hi, k: float):
     return p50 - k * np.clip(p50 - lo, 0, None), p50 + k * np.clip(hi - p50, 0, None)
 
 
-def calibrate_k(y, p50, lo, hi, target: float = 0.8) -> float:
-    """Минимальный коэффициент расширения p10-p90 вокруг p50, дающий покрытие >= target."""
+def band(cat, lo, hi, k: float, final=None):
+    """p10-p90: квантили CatBoost, расширенные в k раз вокруг p50 CatBoost; затем включают итоговый прогноз."""
+    a, b = widen(cat, lo, hi, k)
+    return (a, b) if final is None else (np.minimum(a, final), np.maximum(b, final))
+
+
+def coverage(y, a, b) -> float:
+    return float(np.mean((y >= a) & (y <= b)))
+
+
+def calibrate_k(y, cat, lo, hi, final=None, target: float = 0.8) -> float:
+    """Минимальный коэффициент расширения, дающий покрытие >= target."""
     for k in np.arange(1.0, 10.01, 0.05):
-        a, b = widen(p50, lo, hi, k)
-        if np.mean((y >= a) & (y <= b)) >= target:
+        if coverage(y, *band(cat, lo, hi, k, final)) >= target:
             return round(float(k), 2)
     return 10.0
 
@@ -143,20 +153,36 @@ def main():
         rows.append({"approach": k, "scheme": "GroupKFold(5) 500m blocks", "n_test": len(lab),
                      "r2": r2(lab["thk_next"], p), "mae": mae(lab["thk_next"], p)})
 
+    # выравнивание в метрах: r² persistence 2022->2023 при сдвиге прошлых прогонов на d м (d = 10 == -1 сегмент)
+    base = build_segments()
+    yy = base[base["date"] == pd.Timestamp("2023-12-01")].sort_values(["id", "segment_id"])
+    for d in range(0, 11):
+        s = build_segments(float(d), "2023-12-01")
+        x = s[(s["date"] == pd.Timestamp("2022-07-06")) & s["id"].isin(yy["id"].unique())
+              ].sort_values(["id", "segment_id"])
+        rows.append({"approach": f"persistence_shift_{d}m", "scheme": "align: 2022 Distance + d m vs 2023",
+                     "n_test": len(yy), "r2": r2(yy["min_thk"].values, x["min_thk"].values),
+                     "mae": mae(yy["min_thk"].values, x["min_thk"].values)})
+
     loso_rows, alpha = loso(lab)
     rows += loso_rows
     (CACHE / "blend_alpha.txt").write_text(str(alpha))
 
-    # интервалы на временной валидации
+    # интервалы на временной валидации; покрытие меряем вокруг итогового прогноза (смесь с LOSO-альфой)
     lo, hi = predict_interval(tr, te)
-    y, p50 = te["thk_next"].values, predict_thk(fit_catboost(tr), te)
-    cover = float(np.mean((y >= lo) & (y <= hi)))
-    k = calibrate_k(y, p50, lo, hi)
-    a, b = widen(p50, lo, hi, k)
-    cover_k = float(np.mean((y >= a) & (y <= b)))
+    y, cat = te["thk_next"].values, predict_thk(fit_catboost(tr), te)
+    final = blend(te["thk_prev"], cat, alpha)
+    k_old = 1.5
+    cover = coverage(y, lo, hi)
+    cover_old = coverage(y, *band(cat, lo, hi, k_old, final))
+    k = k_old if abs(cover_old - 0.8) <= 0.05 else calibrate_k(y, cat, lo, hi, final)
+    cover_k = coverage(y, *band(cat, lo, hi, k, final))
     (CACHE / "interval_k.txt").write_text(str(k))
 
-    for name, c in [("catboost_p10_p90_raw", cover), (f"catboost_p10_p90_k={k}", cover_k)]:
+    cov_rows = [("catboost_p10_p90_raw", cover), (f"final_p10_p90_k={k_old}", cover_old)]
+    if k != k_old:
+        cov_rows.append((f"final_p10_p90_k={k}_recalibrated", cover_k))
+    for name, c in cov_rows:
         rows.append({"approach": name, "scheme": "temporal 2018->2022 => 2022->2023", "n_test": len(te),
                      "coverage": c})
 
@@ -174,7 +200,8 @@ def main():
 
     print(met[["approach", "scheme", "r2", "mae"]].assign(scheme=met["scheme"].str[:40]).to_string(index=False))
     print(f"LOSO-selected blend alpha (weight of thk_prev): {alpha}")
-    print(f"p10-p90 coverage on 2022->2023: raw {cover:.2f}; widened k={k} -> {cover_k:.2f}")
+    print(f"p10-p90 coverage on 2022->2023: catboost raw {cover:.2f}; final k={k_old} {cover_old:.2f}; "
+          f"final k={k} {cover_k:.2f}")
     print(imp.head(8).round(2).to_string(index=False))
 
 

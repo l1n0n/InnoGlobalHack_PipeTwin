@@ -2,9 +2,9 @@
 import numpy as np
 import pandas as pd
 
-from config import CACHE, CASE1_IDS, RUN_SHIFT, SEG_LEN, T_DATE, TARGET_IDS
+from config import CACHE, CASE1_IDS, RUN_SHIFT, RUN_SHIFT_M, SEG_LEN, T_DATE, TARGET_IDS
 from load import load
-from segment import segment_grid
+from segment import build_segments, segment_grid
 
 REGIME_COLS = ["watercut", "v_liquid_true", "v_mix", "pit_corrosion_intensity",
                "p_start", "t_mix", "gas_content_rate"]
@@ -74,10 +74,13 @@ def build_features() -> pd.DataFrame:
             pairs.append((len(dates) - 2, len(dates) - 1))
         for i, j in pairs:
             d0, d1 = pd.Timestamp(dates[i]), pd.Timestamp(dates[j])
-            sh = RUN_SHIFT.get((d0.strftime("%Y-%m-%d"), d1.strftime("%Y-%m-%d")), 0)
-            b = prev_block(seg, sid, d0, sh)
+            key = (d0.strftime("%Y-%m-%d"), d1.strftime("%Y-%m-%d"))
+            sh = RUN_SHIFT.get(key, 0)
+            # метровый сдвиг: прошлые прогоны пересегментируются в координатах прогона d1
+            sp = build_segments(RUN_SHIFT_M[key], d1) if key in RUN_SHIFT_M else seg
+            b = prev_block(sp, sid, d0, sh)
             if i > 0:
-                pp = prev_block(seg, sid, dates[i - 1], sh)
+                pp = prev_block(sp, sid, dates[i - 1], sh)
                 yrs = (d0 - pd.Timestamp(dates[i - 1])).days / 365.25
                 b["rate_hist"] = ((pp["thk_prev"] - b["thk_prev"]) / yrs).clip(lower=0).values
             else:

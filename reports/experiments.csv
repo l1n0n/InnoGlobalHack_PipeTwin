@@ -5,3 +5,4 @@ step,change,kept,temporal_r2_catboost,temporal_r2_persistence,gkf_r2_catboost
 3,"sample_weight 0.3 for 2018->2022",yes,0.4922,0.5984,0.1976
 4,"p10/p90 widening k=1.5 (coverage 0.58 -> 0.80)",yes,0.4922,0.5984,0.1976
 5,"LOSO 2022->2023 (pooled 55 segm.): catboost 0.440, blend a=0.25/0.5/0.75 0.491/0.536/0.571, persistence 0.598 -> result.csv = persistence (a=1), CatBoost kept for intervals/importance",yes,0.4922,0.5984,0.1976
+6,"alignment in metres: 2018/2022 Distance + d m before binning, d=0..10; persistence r2 2022->2023: d=0 0.171, 6 0.487, 7 0.579, 8 0.624, 9 0.599, 10 0.598 (= -1 segment) -> RUN_SHIFT_M = 8 m; LOSO still picks persistence (alpha=1); p10-p90 coverage around final pred 0.84 with k=1.5, kept",yes,0.4966,0.6241,0.1987

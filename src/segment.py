@@ -21,10 +21,19 @@ def segment_grid() -> pd.DataFrame:
                         columns=["id", "segment_id"])
 
 
-def build_segments() -> pd.DataFrame:
+def build_segments(shift_m: float = 0.0, keep_date=None) -> pd.DataFrame:
+    """shift_m > 0: дистанции всех прогонов, кроме keep_date, сдвигаются на +shift_m м (выравнивание к keep_date).
+    Края как у сдвига на целый сегмент: полосу [0, shift_m) заполняют несдвинутые дефекты из [0, shift_m),
+    сдвинутые за конец сетки дефекты отбрасываются."""
     v = pd.read_parquet(CACHE / "vtd_clean.parquet")
     grid = segment_grid()
     max_seg = grid.groupby("id")["segment_id"].max()
+    if shift_m:
+        m = v["date"] != pd.Timestamp(keep_date)
+        head = v[m & (v["Distance"] < shift_m)]
+        v.loc[m, "Distance"] += shift_m
+        v = v[~m | (v["Distance"] < (v["id"].map(max_seg) + 1) * SEG_LEN)]
+        v = pd.concat([v, head], ignore_index=True)
     v["segment_id"] = np.floor(v["Distance"] / SEG_LEN).astype(int).clip(lower=0)
     v["segment_id"] = np.minimum(v["segment_id"], v["id"].map(max_seg))  # хвост за длиной -> последний сегмент
 

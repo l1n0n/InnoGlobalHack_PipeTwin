@@ -4,7 +4,7 @@ import pandas as pd
 
 from config import CACHE, REPORTS, ROOT, TARGET_IDS, WT_NOM
 from segment import segment_grid
-from train import blend, fit_catboost, predict_interval, predict_thk, widen
+from train import band, blend, fit_catboost, predict_interval, predict_thk
 
 
 def main():
@@ -17,8 +17,8 @@ def main():
     p50 = np.clip(blend(tgt["thk_prev"].values, cat, alpha), 0.01, WT_NOM)
     # интервалы: квантильный CatBoost, расширенный вокруг p50 CatBoost, затем обязательно содержит итоговый p50
     lo, hi = predict_interval(lab, tgt)
-    lo, hi = widen(cat, lo, hi, float((CACHE / "interval_k.txt").read_text()))  # калибровка на валидации
-    lo, hi = np.clip(np.minimum(lo, p50), 0.01, WT_NOM), np.clip(np.maximum(hi, p50), 0.01, WT_NOM)
+    lo, hi = band(cat, lo, hi, float((CACHE / "interval_k.txt").read_text()), p50)  # k калиброван на валидации
+    lo, hi = np.clip(lo, 0.01, WT_NOM), np.clip(hi, 0.01, WT_NOM)
 
     res = pd.DataFrame({"id": tgt["id"].values, "segment_id": tgt["segment_id"].values,
                         "thickness_pred": p50.round(4)})
