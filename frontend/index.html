@@ -7,16 +7,11 @@
   <link rel="stylesheet" href="/assets/style.css">
   <script defer src="https://cdn.plot.ly/plotly-4.1.1.min.js"></script>
   <script type="module" src="/assets/main.js"></script>
-  <script type="module" src="/assets/ml.js"></script>
 </head>
 <body>
   <header><strong>PipeTwin</strong><span id="source">CSV не загружен</span></header>
   <main>
     <h1>Состояние трубопровода</h1>
-    <nav class="views" aria-label="Режим">
-      <button data-view="csv-view" aria-pressed="true">Профиль по CSV</button>
-      <button data-view="ml-view" aria-pressed="false">ML-прогноз</button>
-    </nav>
     <div class="dashboard" id="csv-view">
       <aside class="dashboard-controls" aria-labelledby="controls-heading">
         <h2 id="controls-heading">Данные и настройки</h2>
@@ -30,39 +25,45 @@
         </div>
         <p id="error" role="alert" hidden></p>
         <div id="loaded-controls" class="loaded-controls" hidden>
-          <label>Трубопровод<select id="pipe"></select></label>
+          <details id="ml-comparison">
+            <summary>Трубопроводы <span id="pipe-selection-summary"></span></summary>
+            <div id="ml-comparison-pipes" class="pipe-choices" role="group" aria-label="Выбор трубопроводов"></div>
+            <div class="controls">
+              <button id="ml-comparison-all" type="button">Выбрать все</button>
+              <button id="pipe-clear" type="button">Снять все</button>
+            </div>
+          </details>
           <form id="segment-search" class="segment-search">
             <label><span id="search-label">Найти сегмент</span><input id="search-value" type="search" required placeholder="Номер сегмента"></label>
             <button type="submit">Найти</button>
             <p id="search-status" role="status" hidden></p>
           </form>
-          <label>Порог толщины, мм<input id="threshold" type="number" min="0.01" step="0.1" placeholder="Введите порог"></label>
+          <label>Порог толщины, мм<input id="threshold" type="number" min="0.01" step="0.1" value="4"></label>
           <button id="download" disabled>Сохранить профиль CSV</button>
           <p id="save-status" role="status" hidden></p>
         </div>
       </aside>
       <section class="panel" id="empty-state">
         <h2>Загрузите профиль толщины</h2>
-        <p>Если есть ВТД, загрузите <code>vtd.csv</code>. Без ВТД загрузите <code>passport.csv</code>, чтобы начать с номинальной толщины на дату ввода. Также можно открыть <code>uzt.csv</code> или профиль PipeTwin.</p>
+        <p>Паспорт, ВТД, УЗТ или профиль PipeTwin.</p>
       </section>
+      <section class="panel" id="empty-selection" hidden><h2>Выберите трубопровод</h2></section>
       <div id="dashboard-content" class="dashboard-content" hidden>
         <div class="metrics" id="metrics"></div>
         <nav aria-label="Разделы">
           <button data-panel="profile" aria-pressed="true">Профиль толщины</button>
           <button data-panel="inspection" aria-pressed="false">Сегменты для проверки</button>
-          <button data-panel="scenario" aria-pressed="false">Сценарий коррозии</button>
+          <button data-panel="scenario" aria-pressed="false">Прогноз коррозии</button>
           <button id="replacement-tab" data-panel="replacement" aria-pressed="false">Замена участка</button>
           <button data-panel="result" aria-pressed="false">Экспорт</button>
         </nav>
         <section class="panel" id="profile">
           <h2 id="profile-title">Толщина вдоль трубы</h2>
           <p id="profile-basis" hidden></p>
-          <p>Колёсико меняет масштаб, перетаскивание сдвигает график. Двойной щелчок возвращает исходный вид.</p>
           <div id="profile-chart" class="plot" role="group" aria-label="Интерактивный профиль толщины"></div>
         </section>
         <section class="panel" id="replacement" hidden>
           <h2>Замена участка</h2>
-          <p>Выберите диапазон 10-метровых сегментов. Толщина новой стенки станет исходной для сценария на этих сегментах.</p>
           <form id="replacement-form">
             <div class="controls">
               <label>Первый сегмент<select id="replacement-start" required></select></label>
@@ -86,99 +87,88 @@
         </section>
         <section class="panel" id="scenario" hidden>
           <h2 id="scenario-title">Прогноз коррозии по всей трубе</h2>
-          <p>Скорость утонения постоянна при заданных условиях. Для эксплуатации порог определяют инженерным расчётом.</p>
-          <div class="controls">
-            <label>Модель<select id="model"><option value="manual">Общая скорость вручную</option><option value="history" id="history-model">По истории ВТД</option><option value="co2">CO₂ · NORSOK M-506</option></select></label>
-            <label id="rate-control" hidden>Скорость для всех сегментов, мм/год<input id="rate" type="number" min="0" step="any"></label>
-            <label>С какого года<input id="start-year" type="number" min="0" max="100" step="any" value="0"></label>
-            <label>По какой год<input id="years" type="number" min="0" max="100" step="any" value="5"></label>
-            <label id="target-date-control" hidden>Дата прогноза<input id="target-date" type="date"></label>
-          </div>
-          <form id="co2-form" hidden>
+          <label>Метод прогноза<select id="forecast-method"><option value="physics">Физическая модель · NORSOK M-506</option><option value="ml">ML-прогноз</option></select></label>
+          <div id="physics-view">
             <div class="controls">
-              <label>Температура, °C<input id="temperature" type="number" min="5" max="150" step="any" required></label>
-              <label>Абсолютное давление, бар<input id="pressure" type="number" min="1" max="1000" step="any" required></label>
-              <label>CO₂ в газовой фазе, мол. %<input id="co2-percent" type="number" min="0" max="100" step="any" required></label>
-              <label>pH водной фазы<input id="ph" type="number" min="3.5" max="6.5" step="any" required></label>
-              <label>Скорость потока, м/с<input id="velocity" type="number" min="0" max="30" step="any" required></label>
-              <label>Внутренний диаметр, мм<input id="diameter" type="number" min="10" max="2000" step="any" required></label>
-              <button type="submit">Рассчитать</button>
+              <label>Начальный год<input id="start-year" type="number" min="1900" max="9999" step="1"></label>
+              <label>Конечный год<input id="years" type="number" min="1900" max="9999" step="1"></label>
             </div>
-            <p>Модель NeqSim для внутренней CO₂-коррозии углеродистой стали в присутствии свободной воды. Условия задаются для всей трубы.</p>
-            <p id="co2-error" role="alert" hidden></p>
-          </form>
-          <p id="rate-source"></p>
-          <button id="stage-result" type="button" disabled>Добавить прогноз участка в result.csv</button>
-          <p id="stage-status" role="status" hidden></p>
-          <div class="metrics" id="forecast-metrics"></div>
-          <div id="forecast-plot" class="plot-frame" hidden>
-            <h3 id="forecast-title">Толщина вдоль трубы в конце интервала</h3>
-            <div id="forecast-profile" class="plot" role="group" aria-label="Интерактивный прогноз по всей трубе"></div>
+            <form id="co2-form">
+              <div class="controls">
+                <label>Температура, °C<input id="temperature" type="number" min="5" max="150" step="any" required></label>
+                <label>Абсолютное давление, бар<input id="pressure" type="number" min="1" max="1000" step="any" required></label>
+                <label>CO₂ в газовой фазе, мол. %<input id="co2-percent" type="number" min="0" max="100" step="any" required></label>
+                <label>pH водной фазы<input id="ph" type="number" min="3.5" max="6.5" step="any" required></label>
+                <label>Скорость потока, м/с<input id="velocity" type="number" min="0" max="30" step="any" required></label>
+                <label>Внутренний диаметр, мм<input id="diameter" type="number" min="10" max="2000" step="any" required></label>
+                <button type="submit">Рассчитать</button>
+              </div>
+              <p id="co2-input-source"></p>
+              <p>Для отсутствующих в CSV параметров подставляются примерные значения. Проверьте их перед расчётом.</p>
+              <p id="co2-error" role="alert" hidden></p>
+            </form>
+            <p id="rate-source"></p>
+            <div class="metrics" id="forecast-metrics"></div>
+            <div id="forecast-plot" class="plot-frame" hidden>
+              <h3 id="forecast-title">Толщина вдоль трубы в конце интервала</h3>
+              <div id="forecast-profile" class="plot" role="group" aria-label="Интерактивный прогноз по всей трубе"></div>
+            </div>
+            <details class="scenario-detail" id="scenario-detail">
+              <summary id="detail-title">Изменение толщины по годам для сегмента</summary>
+              <label><span id="detail-label">Сегмент</span><select id="segment"></select></label>
+              <p id="measurement-info" hidden></p>
+              <div class="metrics" id="scenario-metrics"></div>
+              <div id="segment-plot" class="plot-frame" hidden>
+                <div id="scenario-chart" class="plot" role="group" aria-label="Интерактивный график толщины по годам"></div>
+              </div>
+            </details>
           </div>
-          <details class="scenario-detail" id="scenario-detail">
-            <summary id="detail-title">Изменение толщины по годам для сегмента</summary>
-            <label><span id="detail-label">Сегмент</span><select id="segment"></select></label>
-            <p id="measurement-info" hidden></p>
-            <div class="metrics" id="scenario-metrics"></div>
-            <div id="segment-plot" class="plot-frame" hidden>
-              <div id="scenario-chart" class="plot" role="group" aria-label="Интерактивный график толщины по годам"></div>
+          <div id="ml-view" hidden>
+            <section id="ml-comparison-result" class="panel" aria-label="Сравнение участков" hidden>
+              <p id="ml-comparison-status" role="status" hidden></p>
+              <div id="ml-comparison-chart" class="plot" role="group" aria-label="Сравнение прогнозов толщины" hidden></div>
+            </section>
+            <div id="ml-single">
+              <div id="ml-run-status" class="upload-status" role="status" hidden>
+                Готовим ML-прогноз…
+                <div class="loading-track" aria-hidden="true"></div>
+              </div>
+              <p id="ml-error" class="ml-error" role="alert" hidden></p>
+              <div class="dashboard-content">
+                <div class="metrics" id="ml-metrics"></div>
+                <section class="panel">
+                  <h2 id="ml-profile-title">Прогноз толщины вдоль трубы</h2>
+                  <div id="ml-chart" class="plot" role="group" aria-label="Профиль прогнозной толщины"></div>
+                </section>
+                <div class="ml-grid">
+                  <section class="panel">
+                    <h2>10% самых тонких сегментов</h2>
+                    <div id="ml-table" class="ml-table"></div>
+                  </section>
+                  <section class="panel">
+                    <h2>Важность признаков</h2>
+                    <div id="ml-importance" class="plot" role="group" aria-label="Важность признаков модели"></div>
+                  </section>
+                </div>
+                <details class="scenario-detail" id="ml-validation">
+                  <summary>Все подходы и схемы валидации</summary>
+                  <div id="ml-approaches" class="ml-table"></div>
+                </details>
+              </div>
             </div>
-          </details>
+          </div>
         </section>
         <section class="panel" id="result" hidden>
-          <h2>Экспорт прогноза</h2>
-          <p>Добавьте по одному прогнозу из сценариев двух участков или используйте загруженный готовый прогноз. Сохраняются только три колонки задания.</p>
+          <h2>result.csv</h2>
+          <p><code>id</code> — ID участка, <code>segment_id</code> — номер 10-метрового сегмента с нуля, <code>thickness_pred</code> — прогноз остаточной толщины стенки в мм.</p>
           <div class="controls">
-            <button type="button" id="use-loaded-result">Использовать загруженный прогноз</button>
-            <button type="button" id="prepare-result" disabled>Собрать result.csv</button>
-            <button type="button" id="download-result" disabled>Скачать result.csv</button>
-            <button type="button" id="clear-result">Очистить подборку</button>
+            <label>Источник прогноза<select id="export-model"><option value="ml">ML</option><option value="physics">Физическая модель · NORSOK M-506</option></select></label>
+            <label id="export-first-control" hidden>Первый участок<select id="export-first"></select></label>
+            <label id="export-second-control" hidden>Второй участок<select id="export-second"></select></label>
+            <button type="button" id="download-result">Скачать result.csv</button>
           </div>
           <p id="result-status" role="status"></p>
-          <label id="result-pipe-control" hidden>Трубопровод в result.csv<select id="result-pipe"></select></label>
-          <div id="result-plot" class="plot-frame" hidden>
-            <div id="result-chart" class="plot" role="group" aria-label="Профиль толщины из result.csv"></div>
-          </div>
         </section>
-      </div>
-    </div>
-    <div class="dashboard" id="ml-view" hidden>
-      <aside class="dashboard-controls" aria-labelledby="ml-controls-heading">
-        <h2 id="ml-controls-heading">Прогноз модели</h2>
-        <label>Трубопровод<select id="ml-pipe"></select></label>
-        <p id="ml-pipe-info" class="ml-note"></p>
-        <button id="ml-download" type="button">Скачать result.csv</button>
-        <button id="ml-run" type="button">Пересчитать</button>
-        <div id="ml-run-status" class="upload-status" role="status" hidden>
-          Запускаем main.py, это около 10–20 с…
-          <div class="loading-track" aria-hidden="true"></div>
-        </div>
-        <p id="ml-status" class="ml-note" role="status" hidden></p>
-        <p id="ml-error" class="ml-error" role="alert" hidden></p>
-      </aside>
-      <div class="dashboard-content">
-        <div class="metrics" id="ml-metrics"></div>
-        <section class="panel">
-          <h2 id="ml-profile-title">Прогноз толщины вдоль трубы</h2>
-          <p>Линия: прогноз на дату T, полоса: интервал p10–p90. Колёсико меняет масштаб, перетаскивание сдвигает график, двойной щелчок возвращает исходный вид. Щелчок по строке таблицы отмечает сегмент на графике.</p>
-          <div id="ml-chart" class="plot" role="group" aria-label="Профиль прогнозной толщины"></div>
-        </section>
-        <div class="ml-grid">
-          <section class="panel">
-            <h2>10% самых тонких сегментов</h2>
-            <p>Щелчок по заголовку столбца сортирует таблицу.</p>
-            <div id="ml-table" class="ml-table"></div>
-          </section>
-          <section class="panel">
-            <h2>Важность признаков</h2>
-            <p id="ml-importance-note"></p>
-            <div id="ml-importance" class="plot" role="group" aria-label="Важность признаков модели"></div>
-          </section>
-        </div>
-        <details class="scenario-detail">
-          <summary>Все подходы и схемы валидации</summary>
-          <div id="ml-approaches" class="ml-table"></div>
-        </details>
       </div>
     </div>
   </main>

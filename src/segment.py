@@ -21,12 +21,13 @@ def segment_grid(ids=CASE1_IDS) -> pd.DataFrame:
                         columns=["id", "segment_id"])
 
 
-def build_segments(shift_m: float = 0.0, keep_date=None) -> pd.DataFrame:
+def build_segments(shift_m: float = 0.0, keep_date=None, *, inspections=None,
+                   ids=CASE1_IDS, wall=WT_NOM) -> pd.DataFrame:
     """shift_m > 0: дистанции всех прогонов, кроме keep_date, сдвигаются на +shift_m м (выравнивание к keep_date).
     Края как у сдвига на целый сегмент: полосу [0, shift_m) заполняют несдвинутые дефекты из [0, shift_m),
     сдвинутые за конец сетки дефекты отбрасываются."""
-    v = pd.read_parquet(CACHE / "vtd_clean.parquet")
-    grid = segment_grid()
+    v = pd.read_parquet(CACHE / "vtd_clean.parquet") if inspections is None else inspections.copy()
+    grid = segment_grid(ids)
     max_seg = grid.groupby("id")["segment_id"].max()
     if shift_m:
         m = v["date"] != pd.Timestamp(keep_date)
@@ -43,7 +44,7 @@ def build_segments(shift_m: float = 0.0, keep_date=None) -> pd.DataFrame:
     runs = v[["id", "date"]].drop_duplicates()
     full = grid.merge(runs, on="id").merge(agg, on=["id", "date", "segment_id"], how="left")
     full["censored"] = full["min_thk"].isna().astype(int)
-    full["min_thk"] = full["min_thk"].fillna(WT_NOM)
+    full["min_thk"] = full["min_thk"].fillna(wall)
     full["max_depth"] = full["max_depth"].fillna(0.0)
     full["n_defects"] = full["n_defects"].fillna(0).astype(int)
     return full.sort_values(["id", "date", "segment_id"]).reset_index(drop=True)

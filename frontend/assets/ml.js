@@ -1,4 +1,5 @@
-// Вкладка «ML-прогноз»: показывает выход пайплайна main.py (result.csv и reports/) через /api/ml/*.
+import {sectionStyle} from "./plot-markers.js";
+
 const $ = (id) => document.getElementById(id);
 const fmt = (value, digits = 2) => value == null ? "—"
   : value.toLocaleString("ru-RU", {minimumFractionDigits: digits, maximumFractionDigits: digits});
@@ -9,19 +10,22 @@ const FONT = {family: 'Inter, "Segoe UI", sans-serif', color: "#425b73", size: 1
 const AXIS = {gridcolor: "#e3ebf3", zeroline: false, automargin: true};
 
 const digits = () => state.pipe?.case === 2 ? 3 : 2;
-const state = {pipes: [], metrics: null, pipe: null, profile: [], top: [], sort: {key: "thickness_pred", dir: 1}, selected: null, loaded: false};
+const state = {metrics: null, pipe: null, profile: [], top: [], sort: {key: "thickness_pred", dir: 1}, selected: null};
 
 async function api(path, options) {
   let response;
   try {
-    response = await fetch(API + path, options);
-  } catch {
+    response = await fetch(API + path, {signal: AbortSignal.timeout(20000), ...options});
+  } catch (error) {
+    if (error.name === "TimeoutError") {
+      throw new Error("Сервер не ответил вовремя. Проверьте состояние бэкенда.");
+    }
     throw new Error("API недоступен. Запустите Start Backend.cmd и обновите страницу.");
   }
   if (!response.ok) {
     let detail = response.statusText;
     try { detail = (await response.json()).detail ?? detail; } catch { /* not JSON */ }
-    throw new Error(detail);
+    throw Object.assign(new Error(detail), {status: response.status});
   }
   return response;
 }
@@ -36,58 +40,72 @@ function metric(label, value, note = "", wide = false) {
   return `<div class="metric${wide ? " wide" : ""}"><span>${label}</span><strong>${value}</strong>${note ? `<small>${note}</small>` : ""}</div>`;
 }
 
-function showView(id) {
-  for (const button of document.querySelectorAll("[data-view]")) {
-    const active = button.dataset.view === id;
-    button.setAttribute("aria-pressed", active);
-    $(button.dataset.view).hidden = !active;
-  }
-  if (id === "ml-view") {
-    if (location.hash !== "#ml") history.replaceState(null, "", "#ml");
-    if (!state.loaded) loadAll();
-    else renderAll();
-  } else if (location.hash === "#ml") {
-    history.replaceState(null, "", location.pathname + location.search);
-  }
+let requestVersion = 0;
+const pending = new Map();
+let comparisonVersion = 0;
+let comparisonTraces = [];
+let plotOptions;
+
+function officialPipes() {
+  return json("/api/ml/pipes").catch((error) => {
+    if (error.status === 503) return [];
+    throw error;
+  });
 }
 
-async function loadAll(keepPipe = false) {
+function calculate(id) {
+  if (!pending.has(id)) {
+    const request = json(`/api/ml/section/${encodeURIComponent(id)}`, {method: "POST", signal: null})
+      .finally(() => pending.delete(id));
+    pending.set(id, request);
+  }
+  return pending.get(id);
+}
+
+export async function loadMlForecast(id) {
+  const version = ++requestVersion;
+  const output = $("ml-view").querySelector(".dashboard-content");
+  output.hidden = true;
+  $("ml-run-status").hidden = false;
   showError("");
   try {
-    const [pipes, metrics] = await Promise.all([json("/api/ml/pipes"), json("/api/ml/metrics")]);
-    state.pipes = pipes;
-    state.metrics = metrics;
-    state.loaded = true;
-    const previous = keepPipe ? $("ml-pipe").value : null;
-    $("ml-pipe").replaceChildren(...pipes.map((p) => new Option(`Кейс ${p.case} · ${p.id}`, p.id)));
-    if (previous && pipes.some((p) => p.id === previous)) $("ml-pipe").value = previous;
-    await loadPipe();
+    const official = await officialPipes();
+    if (version !== requestVersion) return;
+    const pipe = official.find((entry) => entry.id === id && entry.segments > 0);
+    let data;
+    if (pipe) {
+      const [profile, top, importance, metrics] = await Promise.all([
+        json(`/api/ml/profile/${id}`), json(`/api/ml/top10/${id}`),
+        json(`/api/ml/importance/${id}`), json("/api/ml/metrics"),
+      ]);
+      data = {pipe, profile, top, importance, metrics};
+    } else {
+      data = await calculate(id);
+      if (data.error) throw new Error(data.error);
+    }
+    if (version !== requestVersion) return;
+    const byId = new Map(data.profile.map((row) => [row.segment_id, row]));
+    Object.assign(state, {
+      pipe: data.pipe, profile: data.profile, importance: data.importance, metrics: data.metrics,
+      selected: null,
+      top: data.top.map((row, i) => ({...byId.get(row.segment_id), ...row, rank: i + 1})),
+    });
+    output.hidden = false;
+    renderMlForecast();
   } catch (failure) {
-    showError(failure.message);
+    if (version === requestVersion) {
+      showError(failure.status === 404
+        ? "Перезапустите бэкенд PipeTwin и обновите страницу: текущий сервер не поддерживает этот запрос ML."
+        : failure.message);
+    }
+  } finally {
+    if (version === requestVersion) $("ml-run-status").hidden = true;
   }
 }
 
-async function loadPipe() {
-  const id = $("ml-pipe").value;
-  state.pipe = state.pipes.find((p) => p.id === id);
-  state.selected = null;
-  showError("");
-  try {
-    const [profile, top, importance] = await Promise.all([
-      json(`/api/ml/profile/${id}`), json(`/api/ml/top10/${id}`), json(`/api/ml/importance/${id}`),
-    ]);
-    const byId = new Map(profile.map((r) => [r.segment_id, r]));
-    state.profile = profile;
-    state.top = top.map((r, i) => ({...byId.get(r.segment_id), ...r, rank: i + 1}));
-    state.importance = importance;
-    renderAll();
-  } catch (failure) {
-    showError(failure.message);
-  }
-}
-
-function renderAll() {
-  if (!state.pipe) return;
+export function renderMlForecast() {
+  renderComparison();
+  if (!state.pipe || $("ml-single").hidden || $("ml-view").querySelector(".dashboard-content").hidden) return;
   renderInfo();
   renderMetrics();
   renderChart();
@@ -96,19 +114,137 @@ function renderAll() {
   renderApproaches();
 }
 
+export function checkedPipes() {
+  return [...$("ml-comparison-pipes").querySelectorAll("input:checked")];
+}
+
+function updatePipeSelectionSummary() {
+  const selected = checkedPipes();
+  $("pipe-clear").disabled = selected.length === 0;
+  $("pipe-selection-summary").textContent = selected.length === 1
+    ? selected[0].labels[0].textContent : selected.length ? `Выбрано: ${selected.length}` : "Участки не выбраны";
+}
+
+function resetComparison() {
+  comparisonVersion++;
+  comparisonTraces = [];
+  $("ml-comparison-result").hidden = true;
+  $("ml-comparison-status").hidden = true;
+  $("ml-comparison-chart").hidden = true;
+}
+
+export function setMlComparisonPipes(pipes, optionsForPipe) {
+  plotOptions = optionsForPipe;
+  resetComparison();
+  $("ml-comparison-all").hidden = pipes.length < 2;
+  $("ml-comparison-pipes").replaceChildren(...pipes.map((pipe, index) => {
+    const id = pipe.id.replace(/\.0$/, "");
+    const label = document.createElement("label");
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.value = id;
+    check.dataset.pipeIndex = index;
+    check.checked = index === 0;
+    label.append(check, pipe.name ? `${pipe.name} · ${id}` : id);
+    return label;
+  }));
+  updatePipeSelectionSummary();
+}
+
+export function refreshMlComparison() {
+  if ($("scenario").hidden || $("ml-view").hidden || !$("ml-comparison-result").hidden) return;
+  comparePipes();
+}
+
+function renderComparison() {
+  const chart = $("ml-comparison-chart");
+  if (chart.hidden || !chart.getClientRects().length) return;
+  const P = plotly(chart);
+  if (!P) return;
+  const traces = comparisonTraces.map(({id, ...trace}) => {
+    const {index, threshold} = plotOptions(id);
+    return {...trace, ...sectionStyle(index, trace.y, threshold)};
+  });
+  P.react(chart, traces, {
+    autosize: true, font: FONT, margin: {l: 55, r: 20, t: 14, b: 52},
+    legend: {orientation: "h", y: 1.03, yanchor: "bottom"},
+    xaxis: {...AXIS, title: {text: "Расстояние от начала каждого участка, м"}},
+    yaxis: {...AXIS, title: {text: "Толщина, мм"}},
+  }, CONFIG).catch((error) => console.error(error));
+}
+
+async function comparePipes() {
+  const ids = checkedPipes().map((input) => input.value);
+  if (ids.length < 2) return;
+  const version = ++comparisonVersion;
+  $("ml-comparison-result").hidden = false;
+  const status = $("ml-comparison-status");
+  status.hidden = false;
+  status.textContent = "Готовим сравнение…";
+  $("ml-comparison-chart").hidden = true;
+  try {
+    const official = await officialPipes();
+    if (version !== comparisonVersion) return;
+    const traces = new Map();
+    const missing = [];
+    let finished = 0;
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const saved = official.find((entry) => entry.id === id && entry.segments > 0);
+        const data = saved ? {pipe: saved, profile: await json(`/api/ml/profile/${id}`)} : await calculate(id);
+        if (data.error) throw new Error(data.error);
+        const {pipe, profile} = data;
+        traces.set(id, {
+          id, type: "scatter", mode: "lines+markers", name: `${pipe.id} · ${pipe.t_date}`,
+          x: profile.map((row) => row.segment_id * 10), y: profile.map((row) => row.thickness_pred),
+          hovertemplate: "%{x} м · %{y:.2f} мм",
+        });
+      } catch (error) {
+        missing.push(`${id}: ${error.message}`);
+      }
+      if (version !== comparisonVersion) return;
+      finished++;
+      comparisonTraces = ids.map((id) => traces.get(id)).filter(Boolean);
+      const progress = finished < ids.length ? `Обработано участков: ${finished} из ${ids.length}` : "";
+      status.textContent = [progress, ...missing].filter(Boolean).join("\n");
+      status.hidden = !status.textContent;
+      $("ml-comparison-chart").hidden = !comparisonTraces.length;
+      renderComparison();
+    }));
+  } catch (error) {
+    if (version === comparisonVersion) status.textContent = error.message;
+  }
+}
+
+$("ml-comparison-pipes").addEventListener("change", () => {
+  resetComparison();
+  updatePipeSelectionSummary();
+});
+$("ml-comparison-all").addEventListener("click", () => {
+  for (const input of $("ml-comparison-pipes").querySelectorAll("input")) input.checked = true;
+  resetComparison();
+  updatePipeSelectionSummary();
+});
+$("pipe-clear").addEventListener("click", () => {
+  for (const input of checkedPipes()) input.checked = false;
+  resetComparison();
+  updatePipeSelectionSummary();
+});
+
 function renderInfo() {
   const p = state.pipe;
-  $("ml-pipe-info").textContent = `Кейс ${p.case}, прогноз на ${p.t_date}. Сегментов: ${p.segments}.`;
   $("ml-profile-title").textContent = `Прогноз толщины вдоль трубы ${p.id} на ${p.t_date}`;
 }
 
 function renderMetrics() {
   const p = state.pipe;
-  const c = state.metrics.cases.find((item) => item.id === p.id) ?? {};
+  const c = state.metrics?.cases.find((item) => item.id === p.id);
   $("ml-metrics").innerHTML = [
+    ...(c ? [
     metric("Итоговый r² (валидация)", fmt(c.r2, 3), escapeHtml(c.final_approach ?? "")),
     metric("Схема валидации", escapeHtml(c.validation ?? "—"), c.n_test ? `тестовых сегментов: ${c.n_test}` : "", true),
     metric("Покрытие p10–p90", c.interval_coverage == null ? "—" : `${fmt(c.interval_coverage * 100, 0)} %`, "цель 80 %"),
+    ] : []),
     metric("Мин. толщина, мм", fmt(p.min_thickness, digits()), `средняя ${fmt(p.mean_thickness, digits())} мм`),
   ].join("");
 }
@@ -141,14 +277,23 @@ function renderChart() {
     hovertemplate: `Сегмент № %{customdata} · %{x} м<br>Прогноз: %{y:.${digits()}f} мм<extra></extra>`});
   traces.push({x: state.top.map((r) => r.segment_id * 10), y: state.top.map((r) => r.thickness_pred),
     customdata: state.top.map((r) => r.segment_id), type: "scatter", mode: "markers", name: "10% самых тонких",
-    marker: {color: "#dc2626", size: 6, line: {color: "#fff", width: 1}},
-    hovertemplate: "Опасный сегмент № %{customdata}: %{y:.2f} мм<extra></extra>"});
+    marker: {color: "#9a5700", size: 6, symbol: "diamond", line: {color: "#fff", width: 1}},
+    hovertemplate: "Сегмент № %{customdata}: %{y:.2f} мм<extra></extra>"});
+  const {threshold} = plotOptions(state.pipe.id);
+  const critical = threshold === null ? [] : rows.filter((row) => row.thickness_pred <= threshold);
+  if (critical.length) {
+    traces.push({x: critical.map((row) => row.segment_id * 10), y: critical.map((row) => row.thickness_pred),
+      customdata: critical.map((row) => row.segment_id), type: "scatter", mode: "markers", name: "На пороге или ниже",
+      marker: {color: "#dc2626", size: 11, line: {color: "#7f1d1d", width: 1.5}},
+      hovertemplate: "Сегмент № %{customdata}: %{y:.2f} мм<extra></extra>"});
+  }
   const shapes = [];
   const selected = rows.find((r) => r.segment_id === state.selected);
   if (selected) {
     traces.push({x: [selected.segment_id * 10], y: [selected.thickness_pred], customdata: [selected.segment_id],
       type: "scatter", mode: "markers", name: "Выбранный сегмент",
-      marker: {color: "#f59e0b", size: 14, symbol: "diamond", line: {color: "#7c2d12", width: 1.5}},
+      marker: {color: threshold !== null && selected.thickness_pred <= threshold ? "#dc2626" : "#f59e0b",
+        size: 14, symbol: "diamond", line: {color: "#7c2d12", width: 1.5}},
       hovertemplate: "Выбран № %{customdata}: %{y:.2f} мм<extra></extra>"});
     shapes.push({type: "line", xref: "x", yref: "paper", x0: selected.segment_id * 10, x1: selected.segment_id * 10,
       y0: 0, y1: 1, line: {color: "#f59e0b", width: 1.5, dash: "dash"}});
@@ -209,9 +354,6 @@ function renderImportance() {
   if (!P || !container.getClientRects().length) return;
   const rows = [...state.importance].reverse();
   container.style.height = `${Math.max(240, rows.length * 22 + 70)}px`;
-  $("ml-importance-note").textContent = state.pipe.case === 1
-    ? "CatBoost кейса 1. Сам прогноз — толщина по ВТД 2022, модель задаёт интервалы p10–p90."
-    : "CatBoost кейса 2 по признакам рельефа: они определяют порядок сегментов.";
   P.react(container, [{
     type: "bar", orientation: "h", x: rows.map((r) => r.importance), y: rows.map((r) => r.feature),
     marker: {color: "#2563a8"}, hovertemplate: "%{y}: %{x:.1f}<extra></extra>",
@@ -222,6 +364,8 @@ function renderImportance() {
 }
 
 function renderApproaches() {
+  $("ml-validation").hidden = !state.metrics;
+  if (!state.metrics) return;
   const rows = state.metrics.approaches;
   const cell = (v) => v == null ? "—" : typeof v === "number" ? fmt(v, Number.isInteger(v) ? 0 : 4) : escapeHtml(v);
   $("ml-approaches").innerHTML = `<table><thead><tr><th>Подход</th><th>Схема</th><th>n</th><th>r²</th><th>MAE</th><th>Покрытие</th></tr></thead><tbody>${
@@ -229,49 +373,6 @@ function renderApproaches() {
   }</tbody></table>`;
 }
 
-async function download() {
-  showError("");
-  try {
-    const blob = await (await api("/api/ml/result.csv")).blob();
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "result.csv";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-  } catch (failure) {
-    showError(failure.message);
-  }
-}
-
-async function run() {
-  const button = $("ml-run");
-  button.disabled = true;
-  $("ml-run-status").hidden = false;
-  $("ml-status").hidden = true;
-  showError("");
-  try {
-    const result = await json("/api/ml/run", {method: "POST"});
-    if (result.status === "ok") {
-      await loadAll(true);
-      $("ml-status").textContent = `Пересчитано за ${fmt(result.duration_s, 1)} с.`;
-      $("ml-status").hidden = false;
-    } else if (result.status === "busy") {
-      showError("Пересчёт уже идёт. Подождите и обновите страницу.");
-    } else {
-      showError(`main.py завершился с ошибкой (${result.status}).\n${result.log_tail}`);
-    }
-  } catch (failure) {
-    showError(failure.message);
-  } finally {
-    button.disabled = false;
-    $("ml-run-status").hidden = true;
-  }
-}
-
-document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
-$("ml-pipe").addEventListener("change", loadPipe);
-$("ml-download").addEventListener("click", download);
-$("ml-run").addEventListener("click", run);
 $("ml-table").addEventListener("click", (event) => {
   const th = event.target.closest("th[data-sort]");
   if (th) {
@@ -289,4 +390,3 @@ $("ml-table").addEventListener("keydown", (event) => {
     event.target.click();
   }
 });
-if (location.hash === "#ml") showView("ml-view");

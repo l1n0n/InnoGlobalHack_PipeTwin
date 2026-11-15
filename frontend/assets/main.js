@@ -1,3 +1,6 @@
+import {checkedPipes, loadMlForecast, refreshMlComparison, renderMlForecast, setMlComparisonPipes} from "./ml.js";
+import {sectionStyle} from "./plot-markers.js";
+
 const $ = (id) => document.getElementById(id);
 const number = (value) => value.toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 let pipes = [];
@@ -5,22 +8,23 @@ let current;
 let uploadVersion = 0;
 let co2Rate;
 let co2Request = 0;
+let mlSelection;
 let profileRevision = 0;
-let scenarioResult;
+const currentYear = new Date().getFullYear();
+const msPerYear = 365.25 * 86400000;
 const resultPipes = new Map();
-let resultVersion = 0;
-let resultFile;
-let resultPreview = [];
+const pipeThresholds = new Map();
+const defaultThreshold = "4";
+let exporting = false;
 const thicknessOf = (segment) => segment.replacement?.wall_mm ?? segment.thickness_pred;
 const orderedInspection = () => current.coordinate_basis === "inspection_order";
-const historicalRate = (segment) => segment.replacement || orderedInspection() ? undefined : segment.rate;
 const positionOf = (segment) => orderedInspection() ? segment.segment_id : segment.segment_id * 10;
 const positionLabel = () => orderedInspection() ? "Номер записи ВТД" : "Дистанция по профилю, м";
 const positionUnit = () => orderedInspection() ? "" : " м";
 const pointName = () => orderedInspection() ? "Точка ВТД" : "Сегмент";
-const yearsBetween = (start, end) => (Date.parse(end) - Date.parse(start)) / (365.25 * 86400000);
-const replacementYear = (segment) => current.commissioned_at && segment.replacement
-  ? yearsBetween(current.commissioned_at, segment.replacement.date) : 0;
+const baseline = (segment) => Date.parse(segment.replacement?.date ?? segment.inspection_date
+  ?? current.commissioned_at ?? `${currentYear}-01-01`);
+const endOfYear = (year) => Date.UTC(year, 11, 31);
 
 async function apiRequest(path, options) {
   if (window.location.port !== "5173") return fetch(path, options);
@@ -34,6 +38,12 @@ async function apiRequest(path, options) {
 function threshold() {
   const value = $("threshold").valueAsNumber;
   return value >= 0.01 ? value : null;
+}
+
+function plotOptions(id) {
+  const index = pipes.findIndex((pipe) => pipe.id.replace(/\.0$/, "") === id.replace(/\.0$/, ""));
+  const value = Number(pipeThresholds.get(pipes[index]?.id ?? id) ?? defaultThreshold);
+  return {index: Math.max(index, 0), threshold: value >= 0.01 ? value : null};
 }
 
 function metric(label, value, alert = false) {
@@ -114,12 +124,12 @@ function graph(container, points, limit, labels, profile = false, range = null) 
     mode: labels.markersOnly ? "markers" : "lines+markers", x, y, customdata: segmentIds,
     line: {color: "#2563a8", width: 3},
     marker: {
-      size: y.map((value) => value !== null && limit !== null && value <= limit ? 10 : 7),
+      size: y.map((value) => value !== null && limit !== null && value <= limit ? 12 : 7),
       color: y.map((value) => value !== null && limit !== null && value <= limit ? "#dc2626" : "#2563a8"),
       line: {color: "#fff", width: 1},
     },
     hovertemplate: (profile || labels.pointName ? (labels.pointName ?? pointName()) + " № %{customdata}<br>" : "")
-      + (labels.markersOnly ? "" : "%{x:.2~f}" + labels.unit + " · ")
+      + (labels.markersOnly ? "" : (labels.calendar ? "%{x|%d.%m.%Y}" : "%{x:.2~f}" + labels.unit) + " · ")
       + "%{y:.2~f} мм<extra></extra>",
   }];
   if (limit !== null) {
@@ -138,7 +148,7 @@ function graph(container, points, limit, labels, profile = false, range = null) 
     margin: {l: 55, r: 18, t: 14, b: 52},
     paper_bgcolor: "#fff", plot_bgcolor: "#fff",
     font: {family: 'Inter, "Segoe UI", sans-serif', color: "#425b73", size: 13},
-    xaxis: {...axis, title: {text: labels.x}},
+    xaxis: {...axis, title: {text: labels.x}, ...(labels.calendar && {type: "date", tickformat: "%Y"})},
     yaxis: {...axis, title: {text: "Толщина, мм"}},
   };
   if (range && range[0] !== range[1]) {
@@ -175,46 +185,62 @@ function renderTable() {
 
 function renderScenario(includeOverview = true) {
   if ($("scenario").hidden) return;
-  const model = $("model").value;
-  const startYear = $("start-year").valueAsNumber;
-  const target = $("target-date").value;
-  const years = current.commissioned_at && target
-    ? yearsBetween(current.commissioned_at, target)
-    : $("years").valueAsNumber;
-  $("years").disabled = Boolean(current.commissioned_at && target);
+  const ml = $("forecast-method").value === "ml";
+  $("scenario-title").textContent = ml ? "ML-прогноз толщины"
+    : orderedInspection() ? "Прогноз по точкам ВТД" : "Прогноз коррозии по всей трубе";
+  const wasHidden = $("ml-view").hidden;
+  $("ml-view").hidden = !ml;
+  $("physics-view").hidden = ml;
+  if (ml) {
+    const multiple = checkedPipes().length > 1;
+    $("ml-single").hidden = multiple;
+    if (multiple) {
+      mlSelection = undefined;
+      refreshMlComparison();
+      return;
+    }
+    const id = current.id.replace(/\.0$/, "");
+    if (mlSelection !== id) {
+      mlSelection = id;
+      loadMlForecast(id);
+    } else if (wasHidden) {
+      renderMlForecast();
+    }
+    return;
+  }
+  const first = $("start-year").valueAsNumber;
+  const last = $("years").valueAsNumber;
+  const startYear = Date.UTC(first, 0, 1);
+  const years = endOfYear(last);
   const limit = threshold();
-  const validYears = startYear >= 0 && startYear < years && years <= 100;
-  const rateFor = (segment) => model === "history" ? historicalRate(segment)
-    : model === "manual" ? $("rate").valueAsNumber : co2Rate;
-  $("co2-form").hidden = model !== "co2";
-  $("rate-control").hidden = model !== "manual";
-  if (includeOverview) renderForecastProfile(model, rateFor, startYear, years, limit, validYears);
-  if ($("scenario-detail").open) renderSegmentScenario(rateFor, startYear, years, limit, validYears);
+  const validYears = Number.isInteger(first) && Number.isInteger(last)
+    && first >= 1900 && last <= 9999 && last >= first && last - first <= 100;
+  if (includeOverview) renderForecastProfile(startYear, years, limit, validYears);
+  if ($("scenario-detail").open) renderSegmentScenario(startYear, years, limit, validYears);
 }
 
-function renderForecastProfile(model, rateFor, startYear, years, limit, validYears) {
+function renderForecastProfile(startYear, years, limit, validYears) {
   const points = [];
   for (const segment of current.segments) {
-    const rate = rateFor(segment);
-    const installed = replacementYear(segment);
+    const rate = co2Rate;
+    const installed = baseline(segment);
     if (validYears && Number.isFinite(rate) && rate >= 0 && installed <= years) {
       points.push({id: segment.segment_id, x: positionOf(segment),
-        y: Math.max(0, thicknessOf(segment) - rate * (years - installed)),
-        before: Math.max(0, thicknessOf(segment) - rate * Math.max(0, startYear - installed))});
+        y: Math.max(0, thicknessOf(segment) - rate * (years - installed) / msPerYear),
+        before: Math.max(0, thicknessOf(segment) - rate * Math.max(0, startYear - installed) / msPerYear)});
     }
   }
-  scenarioResult = !orderedInspection() && points.length === current.segments.length ? {
-    id: current.id, length_m: current.length_m,
-    segments: points.map(({id, y}) => ({segment_id: id, thickness_pred: y})),
-  } : undefined;
-  $("stage-result").disabled = !scenarioResult;
-  $("stage-status").hidden = true;
+  if (!orderedInspection() && points.length === current.segments.length) {
+    resultPipes.set(current.id, {
+      id: current.id, length_m: current.length_m,
+      segments: points.map(({id, y}) => ({segment_id: id, thickness_pred: y})),
+    });
+    updateExport();
+  }
   const total = current.segments.length;
-  $("rate-source").textContent = !validYears ? "Укажите интервал от 0 до 100 лет. Начало должно быть раньше конца."
-    : model === "co2" && co2Rate === undefined ? "Введите условия CO₂ и нажмите «Рассчитать»."
-    : model === "manual" && !points.length ? "Введите общую скорость утонения."
-    : model === "history" && !points.length ? "По ВТД нет оценок скорости. Выберите общую скорость или CO₂."
-    : `Интервал ${number(startYear)}–${number(years)} лет от исходного профиля. График показывает толщину в конце интервала.`;
+  $("rate-source").textContent = !validYears ? "Укажите календарные годы по порядку. Интервал — до 100 лет."
+    : co2Rate === undefined ? "Введите условия CO₂ и нажмите «Рассчитать»."
+    : !points.length ? "Конечный год раньше даты исходной толщины." : "";
   const min = points.reduce((lowest, point) => !lowest || point.y < lowest.y ? point : lowest, null);
   const critical = points.filter((point) => limit !== null && point.y <= limit).length;
   $("forecast-metrics").innerHTML = metric(orderedInspection() ? "Точек с прогнозом" : "С прогнозом", `${points.length} из ${total}`)
@@ -231,7 +257,7 @@ function renderForecastProfile(model, rateFor, startYear, years, limit, validYea
   }
 }
 
-function renderSegmentScenario(rateFor, startYear, years, limit, validYears) {
+function renderSegmentScenario(startYear, years, limit, validYears) {
   const segment = current.segments.find((row) => row.segment_id === Number($("segment").value));
   const details = [
     segment.measurement_ref && "Строка ВТД " + segment.measurement_ref,
@@ -242,8 +268,8 @@ function renderSegmentScenario(rateFor, startYear, years, limit, validYears) {
   $("measurement-info").textContent = details.join(" · ");
   $("measurement-info").hidden = !details.length;
   const start = thicknessOf(segment);
-  const rate = rateFor(segment);
-  const installed = replacementYear(segment);
+  const rate = co2Rate;
+  const installed = baseline(segment);
   const firstYear = Math.max(startYear, installed);
   const hasForecast = Number.isFinite(rate) && rate >= 0 && validYears && installed <= years;
   $("segment-plot").hidden = !hasForecast;
@@ -252,25 +278,31 @@ function renderSegmentScenario(rateFor, startYear, years, limit, validYears) {
       + metric("Прогноз", "Недостаточно данных");
     return;
   }
-  const initial = Math.max(0, start - rate * (firstYear - installed));
-  const end = Math.max(0, start - rate * (years - installed));
+  const initial = Math.max(0, start - rate * (firstYear - installed) / msPerYear);
+  const end = Math.max(0, start - rate * (years - installed) / msPerYear);
   const time = limit === null ? "Задайте порог" : initial <= limit ? "Достигнут к началу"
-    : end > limit ? "Выше порога до конца" : `${number(installed + (start - limit) / rate)} лет от исходного профиля`;
+    : end > limit ? "Выше порога до конца" : new Date(installed + (start - limit) / rate * msPerYear).toLocaleDateString("ru-RU", {timeZone: "UTC"});
   $("scenario-metrics").innerHTML = metric("Толщина в начале интервала", `${number(initial)} мм`)
     + metric("Скорость утонения", `${rate.toLocaleString("ru-RU", {maximumSignificantDigits: 4})} мм/год`)
     + metric("Толщина в конце интервала", `${number(end)} мм`)
     + metric("Достижение порога", time, limit !== null && end <= limit);
   const points = [{x: firstYear, y: initial}];
-  const zeroYear = installed + start / rate;
+  const zeroYear = installed + start / rate * msPerYear;
   if (rate > 0 && zeroYear > firstYear && zeroYear < years) points.push({x: zeroYear, y: 0});
   if (years > firstYear) points.push({x: years, y: end});
   graph($("scenario-chart"), points, limit, {
-    x: "Лет после исходного профиля", unit: " лет",
+    x: "Год", calendar: true,
     revision: [profileRevision, current.id, segment.segment_id, startYear, years].join(":"),
   });
 }
 
 function render() {
+  const selected = checkedPipes().map((input) => pipes[Number(input.dataset.pipeIndex)]);
+  const multipleProfiles = !$("profile").hidden && selected.length > 1;
+  if (multipleProfiles) {
+    renderSelectedProfiles(selected);
+    return;
+  }
   const limit = threshold();
   const count = current.segments.filter((row) => limit !== null && thicknessOf(row) <= limit).length;
   const min = current.segments.reduce((a, b) => thicknessOf(a) <= thicknessOf(b) ? a : b);
@@ -278,17 +310,76 @@ function render() {
     + metric("Минимальная толщина", `${number(thicknessOf(min))} мм · № ${min.segment_id}`)
     + metric("На пороге или ниже", limit === null ? "Задайте порог" : count, count > 0);
   if (!$("profile").hidden) {
+    $("profile-title").textContent = orderedInspection() ? "Замеры толщины ВТД"
+      : current.source_kind === "nominal" ? "Номинальная толщина по паспорту" : "Толщина вдоль трубы";
+    $("profile-basis").hidden = !orderedInspection() && current.source_kind !== "nominal";
     graph($("profile-chart"), pipePoints(), limit, {
       x: positionLabel(), unit: positionUnit(), markersOnly: orderedInspection(), revision: profileRevision + ":" + current.id,
     }, true);
   }
   if (!$("inspection").hidden) renderTable();
-  if (!$("result").hidden) renderResult();
   renderScenario();
 }
 
-function changePipe() {
-  current = pipes[$("pipe").value];
+function renderSelectedProfiles(selected) {
+  $("profile-title").textContent = "Профили выбранных участков";
+  $("profile-basis").hidden = true;
+  const byRecord = selected.some((pipe) => pipe.coordinate_basis === "inspection_order");
+  let minimum = Infinity;
+  let count = 0;
+  const traces = selected.map((pipe) => {
+    const x = [];
+    const y = [];
+    let previous;
+    for (const row of pipe.segments) {
+      const position = row.segment_id;
+      if (!byRecord && previous != null && position !== previous + 1) {
+        x.push(null);
+        y.push(null);
+      }
+      const thickness = thicknessOf(row);
+      x.push(byRecord ? position : position * 10);
+      y.push(thickness);
+      minimum = Math.min(minimum, thickness);
+      previous = position;
+    }
+    count += pipe.segments.length;
+    const {index, threshold} = plotOptions(pipe.id);
+    return {
+      type: x.length > 3000 ? "scattergl" : "scatter",
+      mode: byRecord ? "markers" : "lines+markers",
+      ...sectionStyle(index, y, threshold), name: pipe.id, x, y,
+      hovertemplate: "%{y:.2f} мм · %{fullData.name}<extra></extra>",
+    };
+  });
+  $("metrics").innerHTML = metric("Участков", selected.length)
+    + metric(byRecord ? "Точек" : "Сегментов", count)
+    + metric("Минимальная толщина", `${number(minimum)} мм`);
+  const chart = $("profile-chart");
+  if (!window.Plotly) {
+    chart.textContent = "Не удалось загрузить Plotly.";
+    return;
+  }
+  updateChart(chart, window.Plotly, traces, {
+    autosize: true, dragmode: "pan", showlegend: true,
+    uirevision: [profileRevision, ...selected.map((pipe) => pipe.id)].join(":"),
+    legend: {orientation: "h", y: 1.12},
+    margin: {l: 55, r: 18, t: 35, b: 52},
+    xaxis: {title: {text: byRecord ? "Номер точки или сегмента на участке" : "Расстояние от начала участка, м"}},
+    yaxis: {title: {text: "Толщина, мм"}},
+  }, false);
+}
+
+function changePipe(pipe) {
+  current = pipe;
+  $("threshold").value = pipeThresholds.get(current.id) ?? defaultThreshold;
+  co2Request++;
+  co2Rate = undefined;
+  $("co2-error").hidden = true;
+  for (const [input, param] of Object.entries(co2Fields)) {
+    $(input).value = current.co2_inputs?.[param] ?? co2Defaults[param];
+  }
+  $("co2-input-source").textContent = (current.co2_sources ?? []).join(" · ");
   const ordered = orderedInspection();
   const nominal = current.source_kind === "nominal";
   $("replacement-tab").hidden = ordered;
@@ -299,18 +390,13 @@ function changePipe() {
     ? `Замеры от ${current.segments[0].inspection_date ?? "неуказанной даты"} в порядке записей CSV. Ось показывает номера записей.`
     : "Исходная дата — ввод в эксплуатацию " + current.commissioned_at + ". Используется паспортная толщина.";
   $("inspection-title").textContent = ordered ? "Точки ВТД для проверки" : "Сегменты для проверки";
-  $("scenario-title").textContent = ordered ? "Прогноз по точкам ВТД" : "Прогноз коррозии по всей трубе";
   $("forecast-title").textContent = ordered ? "Толщина в точках ВТД в конце интервала" : "Толщина вдоль трубы в конце интервала";
   $("detail-title").textContent = ordered ? "Изменение толщины в точке по годам" : "Изменение толщины сегмента по годам";
   $("detail-label").textContent = pointName();
-  $("target-date-control").hidden = !nominal;
-  if (!nominal) $("target-date").value = "";
   $("search-label").textContent = ordered ? "Найти точку ВТД" : "Найти сегмент";
   $("search-value").placeholder = ordered ? "Номер точки или row:123" : "Номер сегмента";
   $("search-value").value = "";
   $("search-status").hidden = true;
-  $("history-model").disabled = !current.segments.some((segment) => Number.isFinite(historicalRate(segment)));
-  if ($("history-model").disabled && $("model").value === "history") $("model").value = "manual";
   const options = document.createDocumentFragment();
   for (const row of current.segments) {
     options.append(new Option(ordered ? `Точка № ${row.segment_id}` :
@@ -333,15 +419,23 @@ function changePipe() {
 
 function setData(data, name) {
   pipes = data;
+  setMlComparisonPipes(pipes, plotOptions);
+  resultPipes.clear();
+  for (const id of ["export-first", "export-second"]) $(id).replaceChildren();
+  const first = Math.max(currentYear, ...data.map((pipe) => Number(pipe.commissioned_at?.slice(0, 4) ?? 0)));
+  $("start-year").value = first;
+  $("years").value = first + 5;
+  updateExport();
+  mlSelection = undefined;
   profileRevision++;
   $("save-status").hidden = true;
   $("source").textContent = name;
-  $("pipe").replaceChildren(...pipes.map((pipe, i) => new Option(pipe.name ? `${pipe.name} · ${pipe.id}` : `ID ${pipe.id}`, i)));
   $("empty-state").hidden = true;
+  $("empty-selection").hidden = true;
   $("loaded-controls").hidden = false;
   $("dashboard-content").hidden = false;
   $("download").disabled = false;
-  changePipe();
+  changePipe(pipes[0]);
 }
 
 function error(message) {
@@ -351,41 +445,67 @@ function error(message) {
 
 document.querySelectorAll("[data-panel]").forEach((button) => button.addEventListener("click", () => {
   showPanel(button.dataset.panel);
-  if (current) render();
+  if (current) {
+    render();
+    if (button.dataset.panel === "scenario" && !$("ml-view").hidden) renderMlForecast();
+  }
 }));
 document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-segment]");
   if (target) chooseSegment(target.dataset.segment);
 });
-$("pipe").addEventListener("change", changePipe);
-$("threshold").addEventListener("input", () => current && render());
+function renderPipeSelection() {
+  const selected = checkedPipes().map((input) => pipes[Number(input.dataset.pipeIndex)]);
+  $("dashboard-content").hidden = !selected.length;
+  $("empty-selection").hidden = !!selected.length;
+  $("download").disabled = !selected.length;
+  if (!selected.length) {
+    current = undefined;
+    mlSelection = undefined;
+    co2Request++;
+    return;
+  }
+  const active = selected.includes(current) ? current : selected[0];
+  if (active !== current) changePipe(active);
+  else render();
+}
+$("ml-comparison-pipes").addEventListener("change", renderPipeSelection);
+$("ml-comparison-all").addEventListener("click", renderPipeSelection);
+$("pipe-clear").addEventListener("click", renderPipeSelection);
+$("threshold").addEventListener("input", () => {
+  if (!current) return;
+  pipeThresholds.set(current.id, $("threshold").value);
+  render();
+  if (!$("scenario").hidden && !$("ml-view").hidden) renderMlForecast();
+});
 $("filter").addEventListener("change", () => current && renderTable());
 $("segment").addEventListener("change", () => renderScenario(false));
 $("scenario-detail").addEventListener("toggle", () => {
   if (current && $("scenario-detail").open) renderScenario(false);
 });
-$("model").addEventListener("change", () => current && renderScenario());
+$("forecast-method").addEventListener("change", () => current && renderScenario());
 function clearCo2() {
   co2Request++;
   co2Rate = undefined;
   $("co2-error").hidden = true;
   if (current) renderScenario();
 }
-for (const id of ["temperature", "pressure", "co2-percent", "ph", "velocity", "diameter"]) {
+const co2Fields = {
+  temperature: "temperature_c", pressure: "total_pressure_bar", "co2-percent": "co2_mol_percent",
+  ph: "ph", velocity: "flow_velocity_ms", diameter: "diameter_mm",
+};
+const co2Defaults = {
+  temperature_c: 25, total_pressure_bar: 10, co2_mol_percent: 1,
+  ph: 5, flow_velocity_ms: 1, diameter_mm: 200,
+};
+for (const id of Object.keys(co2Fields)) {
   $(id).addEventListener("input", clearCo2);
 }
 $("co2-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   clearCo2();
   const request = co2Request;
-  const params = new URLSearchParams({
-    temperature_c: $("temperature").value,
-    total_pressure_bar: $("pressure").value,
-    co2_mol_percent: $("co2-percent").value,
-    ph: $("ph").value,
-    flow_velocity_ms: $("velocity").value,
-    diameter_mm: $("diameter").value,
-  });
+  const params = new URLSearchParams(Object.entries(co2Fields).map(([id, param]) => [param, $(id).value]));
   try {
     const response = await apiRequest(`/api/corrosion/co2?${params}`);
     const data = await response.json();
@@ -399,7 +519,7 @@ $("co2-form").addEventListener("submit", async (event) => {
     $("co2-error").hidden = false;
   }
 });
-for (const id of ["rate", "start-year", "years", "target-date"]) $(id).addEventListener("input", () => current && renderScenario());
+for (const id of ["start-year", "years"]) $(id).addEventListener("input", () => current && renderScenario());
 $("file").addEventListener("change", async () => {
   const file = $("file").files[0];
   if (!file) return;
@@ -464,8 +584,6 @@ function setReplacement(replacement) {
     else delete segment.replacement;
   }
   profileRevision++;
-  $("history-model").disabled = !current.segments.some((segment) => Number.isFinite(historicalRate(segment)));
-  if ($("history-model").disabled && $("model").value === "history") $("model").value = "manual";
   status.textContent = `Сегментов обновлено: ${affected.length}. Сохраните профиль CSV, чтобы записать изменения в файл.`;
   $("save-status").textContent = "Есть изменения для сохранения.";
   $("save-status").hidden = false;
@@ -493,104 +611,62 @@ function csvCell(value) {
   return '"' + String(value ?? "").replaceAll('"', '""') + '"';
 }
 
-function resetResultPreview(message = "") {
-  resultVersion++;
-  resultFile = undefined;
-  resultPreview = [];
-  $("download-result").disabled = true;
-  $("prepare-result").disabled = resultPipes.size !== 2;
-  $("result-status").textContent = message ||
-    (resultPipes.size ? "В подборке: " + [...resultPipes.keys()].join(", ") + "." : "");
-  renderResult();
+function updateExport() {
+  const physical = $("export-model").value === "physics";
+  const ids = [...resultPipes.keys()];
+  for (const [index, id] of ["export-first", "export-second"].entries()) {
+    const select = $(id);
+    $(id + "-control").hidden = !physical || ids.length < 2;
+    if (select.options.length !== ids.length) {
+      const previous = select.value;
+      select.replaceChildren(...ids.map((id) => new Option(id, id)));
+      select.value = resultPipes.has(previous) ? previous : ids[index] ?? "";
+    }
+  }
+  const distinct = $("export-first").value !== $("export-second").value;
+  $("download-result").disabled = exporting || (physical && (ids.length < 2 || !distinct));
+  if (!exporting) {
+    $("result-status").textContent = !physical ? ""
+      : ids.length < 2 ? "Рассчитайте физический прогноз для двух участков."
+      : !distinct ? "Выберите два разных участка." : "";
+  }
 }
 
-function renderResult() {
-  const pipe = resultPreview[$("result-pipe").value];
-  $("result-plot").hidden = $("result-pipe-control").hidden = !pipe;
-  if (!pipe || $("result").hidden) return;
-  graph($("result-chart"), pipe.segments.map((segment) => ({
-    id: segment.segment_id, x: segment.segment_id * 10, y: segment.thickness_pred,
-  })), threshold(), {
-    x: "Начало 10-метрового сегмента, м", unit: " м", pointName: "Сегмент",
-    revision: `result:${resultVersion}:${pipe.id}`,
-  });
-}
-
-$("stage-result").addEventListener("click", () => {
-  if (!scenarioResult) return;
-  const status = $("stage-status");
-  status.hidden = false;
-  if (resultPipes.size === 2 && !resultPipes.has(scenarioResult.id)) {
-    status.textContent = "В подборке уже два участка. Очистите её на вкладке «Экспорт».";
-    return;
-  }
-  resultPipes.set(scenarioResult.id, scenarioResult);
-  resetResultPreview();
-  status.textContent = `Прогноз участка ${scenarioResult.id} добавлен. В подборке ${resultPipes.size} из 2.`;
-});
-
-$("use-loaded-result").addEventListener("click", () => {
-  if (pipes.length !== 2 || pipes.some((pipe) => pipe.source_kind === "nominal" ||
-      pipe.coordinate_basis === "inspection_order" || pipe.segments.some((segment) => segment.replacement))) {
-    $("result-status").textContent = "Загрузите готовый прогноз по физическим сегментам двух участков.";
-    return;
-  }
-  resultPipes.clear();
-  for (const pipe of pipes) resultPipes.set(pipe.id, pipe);
-  resetResultPreview();
-});
-
-$("clear-result").addEventListener("click", () => {
-  resultPipes.clear();
-  resetResultPreview();
-});
-
-$("prepare-result").addEventListener("click", async () => {
-  const version = ++resultVersion;
+for (const id of ["export-model", "export-first", "export-second"]) $(id).addEventListener("change", updateExport);
+$("download-result").addEventListener("click", async () => {
+  if (exporting) return;
+  const physical = $("export-model").value === "physics";
+  exporting = true;
+  $("export-model").disabled = true;
+  updateExport();
   const status = $("result-status");
-  $("prepare-result").disabled = true;
-  $("download-result").disabled = true;
-  status.textContent = "Проверяем полноту и собираем CSV…";
+  status.textContent = "Готовим result.csv…";
+  let message;
   try {
-    const response = await apiRequest("/api/result", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify([...resultPipes.values()]),
-    });
+    const response = physical
+      ? await apiRequest("/api/result", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(["export-first", "export-second"].map((id) => resultPipes.get($(id).value))),
+      })
+      : await apiRequest("/api/ml/result.csv");
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(typeof error.detail === "string" ? error.detail : "Некорректные данные result.csv.");
+      throw new Error(typeof error.detail === "string" ? error.detail : "Не удалось получить result.csv.");
     }
-    const file = await response.blob();
-    const parsed = await apiRequest("/api/forecast", {method: "POST", body: file});
-    if (!parsed.ok) throw new Error("Не удалось повторно прочитать сформированный result.csv.");
-    const preview = await parsed.json();
-    if (version !== resultVersion) return;
-    resultFile = file;
-    resultPreview = preview;
-    $("result-pipe").replaceChildren(...preview.map((pipe, index) =>
-      new Option(pipe.name ? `${pipe.name} · ${pipe.id}` : pipe.id, index)));
-    const count = preview.reduce((sum, pipe) => sum + pipe.segments.length, 0);
-    const coverage = response.headers.get("X-Result-Coverage") === "passport"
-      ? "Полнота проверена по длинам участков."
-      : "Нумерация проверена. Сверьте число сегментов с длинами участков в паспорте.";
-    status.textContent = `Готово. В result.csv два участка и ${count} строк прогноза. ${coverage}`;
-    $("download-result").disabled = false;
-    renderResult();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(await response.blob());
+    link.download = "result.csv";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    message = "Файл result.csv готов.";
   } catch (failure) {
-    if (version === resultVersion) status.textContent = failure.message;
+    message = failure.message;
   } finally {
-    if (version === resultVersion) $("prepare-result").disabled = false;
+    exporting = false;
+    $("export-model").disabled = false;
+    updateExport();
+    status.textContent = message;
   }
-});
-
-$("result-pipe").addEventListener("change", renderResult);
-$("download-result").addEventListener("click", () => {
-  if (!resultFile) return;
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(resultFile);
-  link.download = "result.csv";
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 });
 
 $("download").addEventListener("click", async () => {
