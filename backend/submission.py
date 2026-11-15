@@ -1,4 +1,4 @@
-"""Validation and serialization of the jury's result.csv format."""
+"""Validation and serialization of forecasts in result.csv format."""
 
 import csv
 import io
@@ -9,8 +9,8 @@ RESULT_COLUMNS = ("id", "segment_id", "thickness_pred")
 
 
 def result_csv(pipes):
-    if len(pipes) != 2 or len({pipe["id"] for pipe in pipes}) != 2:
-        raise ValueError("Для result.csv нужны два разных трубопроводных участка.")
+    if not pipes or len({pipe["id"] for pipe in pipes}) != len(pipes):
+        raise ValueError("Для result.csv нужен хотя бы один участок без повторов.")
     output = io.StringIO(newline="")
     writer = csv.writer(output, lineterminator="\n")
     writer.writerow(RESULT_COLUMNS)
