@@ -11,9 +11,9 @@ REGIME_COLS = ["watercut", "v_liquid_true", "v_mix", "pit_corrosion_intensity",
 NB = 2  # окно соседей ±2 сегмента
 
 
-def relief_features() -> pd.DataFrame:
+def relief_features(ids=CASE1_IDS) -> pd.DataFrame:
     p = load("profile")
-    p = p[p["id"].isin(CASE1_IDS)].sort_values(["id", "total_distance"]).copy()
+    p = p[p["id"].isin(ids)].sort_values(["id", "total_distance"]).copy()
     p["segment_id"] = np.floor(p["total_distance"] / SEG_LEN).astype(int)
     out = []
     for sid, g in p.groupby("id"):
@@ -27,7 +27,7 @@ def relief_features() -> pd.DataFrame:
         seg["is_local_min"] = (seg["z_mean"] <= nb_min).astype(int)
         seg["id"] = sid
         out.append(seg[["id", "segment_id", "z_mean", "slope", "z_above_min100", "is_local_min"]])
-    grid = segment_grid()
+    grid = segment_grid(ids)
     rel = grid.merge(pd.concat(out), on=["id", "segment_id"], how="left")
     cols = ["z_mean", "slope", "z_above_min100", "is_local_min"]
     rel[cols] = rel.groupby("id")[cols].transform(lambda s: s.ffill().bfill())

@@ -9,9 +9,9 @@ COLS = ["id", "date", "Distance", "Defect Type", "depth_pct", "rwt", "Angle",
         "Feature Length", "Feature Width"]
 
 
-def clean_vtd() -> pd.DataFrame:
+def clean_vtd(ids=CASE1_IDS, wt_nom: float = WT_NOM) -> pd.DataFrame:
     v = load("vtd")
-    v = v[v["id"].isin(CASE1_IDS)].copy()
+    v = v[v["id"].isin(ids)].copy()
     v = v[~v["is_beyond_pot"].fillna(False).astype(bool)]
 
     desc = v["Feature Description"].astype("string").str.lower().str.strip()
@@ -25,10 +25,11 @@ def clean_vtd() -> pd.DataFrame:
     v["depth_pct"] = depth
 
     rwt = pd.to_numeric(v["Residual Wall Thickness"], errors="coerce")
-    v["rwt"] = rwt.fillna(WT_NOM * (1 - depth / 100)).clip(upper=WT_NOM)
+    v["rwt"] = rwt.fillna(wt_nom * (1 - depth / 100)).clip(upper=wt_nom)
 
     v["Defect Type"] = (v["Defect Type"].astype("string").str.strip()
                         .replace({"внутр.": "Внутренний", "внешн.": "Внешний"}))
+    v = v[v["Defect Type"] == "Внутренний"]   # подсказка ментора: учитываются только внутренние дефекты
     v = v.dropna(subset=["Distance", "rwt"])
     return v[COLS].reset_index(drop=True)
 

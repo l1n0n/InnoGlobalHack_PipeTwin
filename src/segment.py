@@ -6,17 +6,17 @@ from config import CACHE, CASE1_IDS, SEG_LEN, WT_NOM
 from load import load
 
 
-def section_lengths() -> dict[int, float]:
+def section_lengths(ids=CASE1_IDS) -> dict[int, float]:
     r = load("regime")
-    r = r[r["simple_section_id"].isin(CASE1_IDS)]
+    r = r[r["simple_section_id"].isin(ids)]
     lengths = r.groupby("simple_section_id")["length"].max().to_dict()
     p = load("profile")
-    prof_max = p[p["id"].isin(CASE1_IDS)].groupby("id")["total_distance"].max().to_dict()
-    return {i: lengths.get(i, prof_max.get(i)) for i in CASE1_IDS}
+    prof_max = p[p["id"].isin(ids)].groupby("id")["total_distance"].max().to_dict()
+    return {i: lengths.get(i, prof_max.get(i)) for i in ids}
 
 
-def segment_grid() -> pd.DataFrame:
-    return pd.DataFrame([(i, s) for i, L in section_lengths().items()
+def segment_grid(ids=CASE1_IDS) -> pd.DataFrame:
+    return pd.DataFrame([(i, s) for i, L in section_lengths(ids).items()
                          for s in range(int(np.floor(L / SEG_LEN)) + 1)],
                         columns=["id", "segment_id"])
 
