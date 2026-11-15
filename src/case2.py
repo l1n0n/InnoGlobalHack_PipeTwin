@@ -136,12 +136,13 @@ def validate(d2: pd.DataFrame, d3: pd.DataFrame):
     return pd.DataFrame(rows), o2
 
 
-def predict(d2: pd.DataFrame, k: float) -> pd.DataFrame:
+def predict(d2: pd.DataFrame, k: float, scale: float) -> pd.DataFrame:
+    """scale: уровень скорости DIR-2 -> DIR-3 (похожая обводнённость); множитель > 0, ранжирование не меняется."""
     te = features([CASE2_ID], T_DATE_CASE2).sort_values("segment_id").reset_index(drop=True)
     age = years(COMMISSION_CASE2, T_DATE_CASE2)
-    rate = fit(FINAL, d2)[0](te)
-    q10 = fit(FINAL, d2, "Quantile:alpha=0.1")[0](te)
-    q90 = fit(FINAL, d2, "Quantile:alpha=0.9")[0](te)
+    rate = scale * fit(FINAL, d2)[0](te)
+    q10 = scale * fit(FINAL, d2, "Quantile:alpha=0.1")[0](te)
+    q90 = scale * fit(FINAL, d2, "Quantile:alpha=0.9")[0](te)
     lo, hi = band(rate, np.minimum(q10, q90), np.maximum(q10, q90), k)
     thk = lambda r: np.clip(WT_NOM_CASE2 - r * age, 0.01, WT_NOM_CASE2)
     return pd.DataFrame({"id": CASE2_ID, "segment_id": te["segment_id"], "rate_pred": rate,
@@ -154,14 +155,15 @@ def write(pred: pd.DataFrame, met: pd.DataFrame, k: float, imp: pd.DataFrame) ->
     assert pred["p50"].notna().all() and ((pred["p50"] > 0) & (pred["p50"] <= WT_NOM_CASE2)).all()
     res = pd.read_csv(ROOT / "result.csv")
     res = res[res["id"] != CASE2_ID]
-    new = pred[["id", "segment_id"]].assign(thickness_pred=pred["p50"].round(4))
+    # 6 знаков: после масштабирования на уровень DIR-3 разброс ~0.1 мм, 4 знака дают 392 уникальных значения из 921
+    new = pred[["id", "segment_id"]].assign(thickness_pred=pred["p50"].round(6))
     res = pd.concat([res, new], ignore_index=True)
     assert not res.duplicated(["id", "segment_id"]).any()
-    res.to_csv(ROOT / "result.csv", index=False, float_format="%.4f")
+    res.to_csv(ROOT / "result.csv", index=False, float_format="%.6f")
 
     iv = pd.read_csv(REPORTS / "intervals.csv")
     iv = iv[iv["id"] != CASE2_ID]
-    iv2 = pred.assign(thk_prev=np.nan, p50_catboost=pred["p50"])[iv.columns].round(4)
+    iv2 = pred.assign(thk_prev=np.nan, p50_catboost=pred["p50"])[iv.columns].round(6)
     pd.concat([iv, iv2], ignore_index=True).to_csv(REPORTS / "intervals.csv", index=False)
 
     # 10 % самых тонких сегментов отдельно по каждой трубе
@@ -198,4 +200,7 @@ if __name__ == "__main__":
     imp = pd.DataFrame({"feature": FEATS, "importance": model.get_feature_importance().round(2)}
                        ).sort_values("importance", ascending=False)
     print(imp.head(6).to_string(index=False))
-    write(predict(d2, k), met, k, imp)
+    # уровень: средняя скорость DIR-3 (обводнённость 0.12 %, как у 1250009583) / средняя скорость DIR-2 (88 %)
+    scale = d3["rate"].mean() / d2["rate"].mean()
+    print(f"rate scale DIR-2 -> DIR-3: {d3['rate'].mean():.5f} / {d2['rate'].mean():.5f} = {scale:.4f}")
+    write(predict(d2, k, scale), met, k, imp)

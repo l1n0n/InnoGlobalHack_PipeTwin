@@ -11,3 +11,4 @@ c2-1,"case2: CatBoost all features (terrain + regime life means), DIR-2 commissi
 c2-2,"case2: drop rel_pos (position on another pipe does not transfer): catboost_terrain 0.0461 -> 0.0737, catboost_all 0.0511 -> 0.0711; multi-scale slope/curvature (5/11/25 segm.) 0.0311 -> not kept",yes,,,
 c2-3,"case2: + DIR-3 training (7 sections, 2185 segm., 96% censored): GKF DIR-2 catboost_all 0.0711 -> 0.0869 but GKF DIR-3 0.0002, leave-one-pipe-out both ways ~0 -> DIR-3 not used",no,,,
 c2-4,"case2: final = catboost_all trained on DIR-2; p10/p90 quantile CatBoost widened k=1.25 (GKF coverage 0.71 -> 0.80)",yes,,,
+c2-5,"case2: rate level scaled DIR-2 -> DIR-3 (similar watercut 0.12 %): s = mean rate DIR-3 / DIR-2 = 0.00258/0.07537 = 0.0342; mean thickness 2.14 -> 4.42 mm; ranking unchanged (Spearman/Pearson vs unscaled = 1.0); result.csv written with 6 decimals (4 decimals collapsed 921 -> 392 unique values)",yes,,,
