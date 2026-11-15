@@ -2,6 +2,7 @@
 
 import csv
 import importlib.util
+import json
 import math
 import subprocess
 import sys
@@ -168,6 +169,33 @@ def importance(pipe_id: str) -> list[dict]:
 
 
 _run_lock = threading.Lock()
+_section_lock = threading.Lock()
+_section_forecasts = {}
+
+
+def section_forecast(pipe_id):
+    """Reuse an on-demand forecast for this workbook and section."""
+    workbook = PROJECT_ROOT / "data" / "raw_csv" / "all.xlsx"
+    if not workbook.is_file():
+        raise MissingResults("Для расчёта ML нужен data/raw_csv/all.xlsx.")
+    version = workbook.stat().st_mtime_ns
+    with _section_lock:
+        cached = _section_forecasts.get(pipe_id)
+        if cached and cached[0] == version:
+            return cached[1]
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-X", "utf8", str(PROJECT_ROOT / "src" / "predict_section.py"), pipe_id],
+                cwd=PROJECT_ROOT, capture_output=True, encoding="utf-8", timeout=900,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("Расчёт ML превысил лимит времени.") from error
+        if proc.returncode:
+            raise RuntimeError(proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else "Ошибка расчёта ML.")
+        result = json.loads(proc.stdout)
+        if "profile" in result:
+            _section_forecasts[pipe_id] = version, result
+        return result
 
 
 def run_pipeline(timeout: int = 900) -> dict:

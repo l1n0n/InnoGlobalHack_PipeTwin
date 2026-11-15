@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import ml_results
 from .corrosion import co2_rate
+from .corrosion_inputs import attach_corrosion_inputs
 from .pipeline_data import (
     PROJECT_ROOT,
     load_demo_profiles,
@@ -49,6 +50,7 @@ async def upload_forecast(request: Request, as_of: date | None = None):
         for pipe in pipes:
             if (name := names.get(pipe["id"].removesuffix(".0"))) and not pipe.get("name"):
                 pipe["name"] = name
+        await run_in_threadpool(attach_corrosion_inputs, pipes, content, as_of)
         return pipes
     except (ValueError, csv.Error) as error:
         raise HTTPException(422, str(error)) from error
@@ -118,6 +120,14 @@ def _ml(fn, *args):
 @app.get("/api/ml/pipes")
 def ml_pipes():
     return _ml(ml_results.pipes)
+
+
+@app.post("/api/ml/section/{pipe_id}")
+def ml_section(pipe_id: int):
+    try:
+        return ml_results.section_forecast(str(pipe_id))
+    except (ml_results.MissingResults, RuntimeError) as error:
+        raise HTTPException(503, str(error)) from error
 
 
 @app.get("/api/ml/profile/{pipe_id}")

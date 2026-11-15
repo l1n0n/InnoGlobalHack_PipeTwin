@@ -61,8 +61,8 @@ def prev_block(seg: pd.DataFrame, sid: int, date, shift: int = 0) -> pd.DataFram
     return b
 
 
-def build_features() -> pd.DataFrame:
-    seg = pd.read_parquet(CACHE / "segments.parquet")
+def build_features(inspections=None) -> pd.DataFrame:
+    seg = pd.read_parquet(CACHE / "segments.parquet") if inspections is None else build_segments(inspections=inspections)
     rel = relief_features()
     t = pd.Timestamp(T_DATE)
     rows = []
@@ -77,10 +77,10 @@ def build_features() -> pd.DataFrame:
             key = (d0.strftime("%Y-%m-%d"), d1.strftime("%Y-%m-%d"))
             sh = RUN_SHIFT.get(key, 0)
             # метровый сдвиг: прошлые прогоны пересегментируются в координатах прогона d1
-            sp = build_segments(RUN_SHIFT_M[key], d1) if key in RUN_SHIFT_M else seg
+            sp = build_segments(RUN_SHIFT_M[key], d1, inspections=inspections) if key in RUN_SHIFT_M else seg
             b = prev_block(sp, sid, d0, sh)
             if key in RUN_SHIFT_AVG_M:  # сдвиг неточен: усредняем толщину прошлого прогона по сетке сдвигов
-                b["thk_prev"] = np.mean([prev_block(build_segments(d, d1), sid, d0, sh)["thk_prev"].values
+                b["thk_prev"] = np.mean([prev_block(build_segments(d, d1, inspections=inspections), sid, d0, sh)["thk_prev"].values
                                          for d in RUN_SHIFT_AVG_M[key]], axis=0)
             if i > 0:
                 pp = prev_block(sp, sid, dates[i - 1], sh)
