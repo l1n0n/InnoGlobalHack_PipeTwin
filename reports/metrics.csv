@@ -1,12 +1,12 @@
 approach,scheme,n_test,r2,mae,coverage
-persistence,temporal 2018->2022 => 2022->2023,55,0.6241,0.3369,
-linear_extrap,temporal 2018->2022 => 2022->2023,55,0.6222,0.2779,
-ridge,temporal 2018->2022 => 2022->2023,55,0.2552,0.5684,
-catboost,temporal 2018->2022 => 2022->2023,55,0.484,0.409,
-persistence,GroupKFold(5) 500m blocks,635,0.148,0.82,
-linear_extrap,GroupKFold(5) 500m blocks,635,0.1552,0.8149,
-ridge,GroupKFold(5) 500m blocks,635,0.1866,0.4762,
-catboost,GroupKFold(5) 500m blocks,635,0.2083,0.442,
+persistence,temporal 2018->2022 => 2022->2023,55,0.6274,0.3517,
+linear_extrap,temporal 2018->2022 => 2022->2023,55,0.5947,0.2914,
+ridge,temporal 2018->2022 => 2022->2023,55,0.2367,0.5663,
+catboost,temporal 2018->2022 => 2022->2023,55,0.4744,0.4,
+persistence,GroupKFold(5) 500m blocks,635,0.1468,0.8213,
+linear_extrap,GroupKFold(5) 500m blocks,635,0.1534,0.8161,
+ridge,GroupKFold(5) 500m blocks,635,0.1843,0.4783,
+catboost,GroupKFold(5) 500m blocks,635,0.2129,0.4443,
 persistence_shift_0m,align: 2022 Distance + d m vs 2023,55,0.1705,0.4918,
 persistence_shift_1m,align: 2022 Distance + d m vs 2023,55,0.1354,0.5075,
 persistence_shift_2m,align: 2022 Distance + d m vs 2023,55,0.1992,0.4707,
@@ -18,13 +18,15 @@ persistence_shift_7m,align: 2022 Distance + d m vs 2023,55,0.5792,0.3427,
 persistence_shift_8m,align: 2022 Distance + d m vs 2023,55,0.6241,0.3369,
 persistence_shift_9m,align: 2022 Distance + d m vs 2023,55,0.5985,0.3413,
 persistence_shift_10m,align: 2022 Distance + d m vs 2023,55,0.5984,0.3711,
-catboost,LOSO 2022->2023 pooled (per section 1250009490: 0.246; 1250011604: 0.497),55,0.4542,0.42,
-blend_a=0.25,LOSO 2022->2023 pooled (per section 1250009490: 0.243; 1250011604: 0.564),55,0.5297,0.318,
-blend_a=0.5,LOSO 2022->2023 pooled (per section 1250009490: 0.237; 1250011604: 0.605),55,0.5803,0.2524,
-blend_a=0.75,LOSO 2022->2023 pooled (per section 1250009490: 0.228; 1250011604: 0.626),55,0.6098,0.2635,
-persistence,LOSO 2022->2023 pooled (per section 1250009490: 0.218; 1250011604: 0.632),55,0.6241,0.3369,
-catboost_p10_p90_raw,temporal 2018->2022 => 2022->2023,55,,,0.6364
-final_p10_p90_k=1.5,temporal 2018->2022 => 2022->2023,55,,,0.8364
+catboost,LOSO 2022->2023 pooled (per section 1250009490: 0.350; 1250011604: 0.486),55,0.4163,0.4539,
+blend_a=0.25,LOSO 2022->2023 pooled (per section 1250009490: 0.346; 1250011604: 0.549),55,0.4957,0.3411,
+blend_a=0.5,LOSO 2022->2023 pooled (per section 1250009490: 0.340; 1250011604: 0.593),55,0.5575,0.2637,
+blend_a=0.75,LOSO 2022->2023 pooled (per section 1250009490: 0.332; 1250011604: 0.620),55,0.6006,0.2627,
+persistence,LOSO 2022->2023 pooled (per section 1250009490: 0.322; 1250011604: 0.634),55,0.6274,0.3517,
+"persistence_minus_c (c in-sample=0.345, not used)",LOSO 2022->2023 pooled,55,0.5601,0.3811,
+persistence_minus_c in-sample (optimistic),"2022->2023, c on same 55 segm.",55,0.6274,0.2472,
+catboost_p10_p90_raw,temporal 2018->2022 => 2022->2023,55,,,0.6
+final_p10_p90_k=1.5,temporal 2018->2022 => 2022->2023,55,,,0.8182
 case2_const,"case2 GKF(5) 500m DIR-2, train DIR-2",580,0.0,0.0206,
 case2_ridge_terrain,"case2 GKF(5) 500m DIR-2, train DIR-2",580,0.0432,0.0214,
 case2_ridge_all,"case2 GKF(5) 500m DIR-2, train DIR-2",580,0.0383,0.0218,
@@ -46,5 +48,5 @@ case2_ridge_terrain,case2 leave-one-pipe-out: train DIR-3 -> test DIR-2,580,0.04
 case2_ridge_all,case2 leave-one-pipe-out: train DIR-3 -> test DIR-2,580,0.0,6.2592,
 case2_catboost_terrain,case2 leave-one-pipe-out: train DIR-3 -> test DIR-2,580,0.0033,0.0728,
 case2_catboost_all,case2 leave-one-pipe-out: train DIR-3 -> test DIR-2,580,0.0003,0.0732,
-case2_catboost_p10_p90_raw,"case2 GKF(5) 500m DIR-2, train DIR-2",580,,,0.7103
-case2_final_p10_p90_k=1.25,"case2 GKF(5) 500m DIR-2, train DIR-2",580,,,0.8
+case2_catboost_p10_p90_raw,"case2 GKF(5) 500m DIR-2, train DIR-2",580,,,0.6966
+case2_final_p10_p90_k=1.4,"case2 GKF(5) 500m DIR-2, train DIR-2",580,,,0.8103
