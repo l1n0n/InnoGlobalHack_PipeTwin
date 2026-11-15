@@ -25,3 +25,8 @@ given/
 /result_demo.csv
 /corrosion_forecast.csv
 /pipetwin-profile.csv
+.idea/
+data/processed/*
+data/cache/
+__pycache__/
+catboost_info/
