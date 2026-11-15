@@ -2,3 +2,6 @@
 given/
 .idea/
 data/processed/*
+data/cache/
+__pycache__/
+catboost_info/

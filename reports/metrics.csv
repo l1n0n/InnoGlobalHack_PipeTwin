@@ -1,0 +1,9 @@
+approach,scheme,n_test,r2,mae
+persistence,temporal 2018->2022 => 2022->2023,55,0.1705,0.4918
+linear_extrap,temporal 2018->2022 => 2022->2023,55,0.1362,0.4733
+ridge,temporal 2018->2022 => 2022->2023,55,0.0899,0.6437
+catboost,temporal 2018->2022 => 2022->2023,55,0.1884,0.462
+persistence,GroupKFold(5) 500m blocks,635,0.1379,0.847
+linear_extrap,GroupKFold(5) 500m blocks,635,0.1409,0.8454
+ridge,GroupKFold(5) 500m blocks,635,0.1435,0.4686
+catboost,GroupKFold(5) 500m blocks,635,0.1849,0.4374
