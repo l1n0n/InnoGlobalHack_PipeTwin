@@ -19,6 +19,7 @@ FEATURES = ["thk_prev", "max_depth_prev", "n_defects_prev", "censored_prev",
             "reg_watercut", "reg_v_liquid_true", "reg_v_mix", "reg_pit_corrosion_intensity",
             "reg_p_start", "reg_t_mix", "reg_gas_content_rate", "reg_share_not_turbulent", "id"]
 CAT = ["id"]
+W_2018 = 0.3  # вес переходов 2018->2022 (старый прогон, другой формат отчёта)
 
 
 def r2(y, p) -> float:
@@ -45,7 +46,8 @@ def fit_catboost(df: pd.DataFrame, loss: str = "RMSE", iters: int = 500) -> CatB
                           random_seed=SEED, verbose=0, cat_features=CAT,
                           allow_writing_files=False)
     # квантильные модели учим на «сырой» дельте: в ~25 % сегментов следующий прогон толще (шум)
-    m.fit(X_of(df), loss_target(df, clip=not loss.startswith("Quantile")))
+    w = np.where(df["transition"] == "2018->2022", W_2018, 1.0)
+    m.fit(X_of(df), loss_target(df, clip=not loss.startswith("Quantile")), sample_weight=w)
     return m
 
 
@@ -58,6 +60,19 @@ def predict_interval(df_train: pd.DataFrame, df: pd.DataFrame) -> tuple[np.ndarr
     a = predict_thk(fit_catboost(df_train, "Quantile:alpha=0.1"), df, clip=False)
     b = predict_thk(fit_catboost(df_train, "Quantile:alpha=0.9"), df, clip=False)
     return np.minimum(a, b), np.maximum(a, b)
+
+
+def widen(p50, lo, hi, k: float):
+    return p50 - k * np.clip(p50 - lo, 0, None), p50 + k * np.clip(hi - p50, 0, None)
+
+
+def calibrate_k(y, p50, lo, hi, target: float = 0.8) -> float:
+    """Минимальный коэффициент расширения p10-p90 вокруг p50, дающий покрытие >= target."""
+    for k in np.arange(1.0, 10.01, 0.05):
+        a, b = widen(p50, lo, hi, k)
+        if np.mean((y >= a) & (y <= b)) >= target:
+            return round(float(k), 2)
+    return 10.0
 
 
 def fit_ridge(df: pd.DataFrame):
@@ -100,7 +115,16 @@ def main():
 
     # интервалы на временной валидации
     lo, hi = predict_interval(tr, te)
-    cover = float(np.mean((te["thk_next"] >= lo) & (te["thk_next"] <= hi)))
+    y, p50 = te["thk_next"].values, predict_thk(fit_catboost(tr), te)
+    cover = float(np.mean((y >= lo) & (y <= hi)))
+    k = calibrate_k(y, p50, lo, hi)
+    a, b = widen(p50, lo, hi, k)
+    cover_k = float(np.mean((y >= a) & (y <= b)))
+    (CACHE / "interval_k.txt").write_text(str(k))
+
+    for name, c in [("catboost_p10_p90_raw", cover), (f"catboost_p10_p90_k={k}", cover_k)]:
+        rows.append({"approach": name, "scheme": "temporal 2018->2022 => 2022->2023", "n_test": len(te),
+                     "coverage": c})
 
     REPORTS.mkdir(exist_ok=True)
     met = pd.DataFrame(rows).round(4)
@@ -115,7 +139,7 @@ def main():
     imp.to_csv(REPORTS / "importance.csv", index=False)
 
     print(met.to_string(index=False))
-    print(f"p10-p90 coverage on 2022->2023: {cover:.2f}")
+    print(f"p10-p90 coverage on 2022->2023: raw {cover:.2f}; widened k={k} -> {cover_k:.2f}")
     print(imp.head(8).round(2).to_string(index=False))
 
 

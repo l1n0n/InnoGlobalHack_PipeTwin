@@ -1,0 +1,6 @@
+step,change,kept,temporal_r2_catboost,temporal_r2_persistence,gkf_r2_catboost
+0,baseline (commit e3561ba),-,0.1884,0.1705,0.1849
+1,"alignment: 2023[s] vs 2022[s-1] (shift -1 segment)",yes,0.4751,0.5984,0.1966
+2,"+ rolling min/mean thk_prev, window ±1",no,0.4401,0.5984,0.1970
+3,"sample_weight 0.3 for 2018->2022",yes,0.4922,0.5984,0.1976
+4,"p10/p90 widening k=1.5 (coverage 0.58 -> 0.80)",yes,0.4922,0.5984,0.1976

@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from config import CACHE, CASE1_IDS, SEG_LEN, T_DATE, TARGET_IDS
+from config import CACHE, CASE1_IDS, RUN_SHIFT, SEG_LEN, T_DATE, TARGET_IDS
 from load import load
 from segment import segment_grid
 
@@ -44,8 +44,11 @@ def regime_window(sid: int, d0: pd.Timestamp, d1: pd.Timestamp) -> dict:
     return feats
 
 
-def prev_block(seg: pd.DataFrame, sid: int, date) -> pd.DataFrame:
+def prev_block(seg: pd.DataFrame, sid: int, date, shift: int = 0) -> pd.DataFrame:
     s = seg[(seg["id"] == sid) & (seg["date"] == date)].sort_values("segment_id").reset_index(drop=True)
+    if shift:  # выравнивание к координатам следующего прогона: значение в s берём из s + shift
+        cols = ["min_thk", "max_depth", "n_defects", "censored"]
+        s[cols] = s[cols].shift(-shift).ffill().bfill()
     b = pd.DataFrame({"id": sid, "segment_id": s["segment_id"], "thk_prev": s["min_thk"],
                       "max_depth_prev": s["max_depth"], "n_defects_prev": s["n_defects"],
                       "censored_prev": s["censored"]})
@@ -71,9 +74,10 @@ def build_features() -> pd.DataFrame:
             pairs.append((len(dates) - 2, len(dates) - 1))
         for i, j in pairs:
             d0, d1 = pd.Timestamp(dates[i]), pd.Timestamp(dates[j])
-            b = prev_block(seg, sid, d0)
+            sh = RUN_SHIFT.get((d0.strftime("%Y-%m-%d"), d1.strftime("%Y-%m-%d")), 0)
+            b = prev_block(seg, sid, d0, sh)
             if i > 0:
-                pp = prev_block(seg, sid, dates[i - 1])
+                pp = prev_block(seg, sid, dates[i - 1], sh)
                 yrs = (d0 - pd.Timestamp(dates[i - 1])).days / 365.25
                 b["rate_hist"] = ((pp["thk_prev"] - b["thk_prev"]) / yrs).clip(lower=0).values
             else:

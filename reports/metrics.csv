@@ -1,9 +1,11 @@
-approach,scheme,n_test,r2,mae
-persistence,temporal 2018->2022 => 2022->2023,55,0.1705,0.4918
-linear_extrap,temporal 2018->2022 => 2022->2023,55,0.1362,0.4733
-ridge,temporal 2018->2022 => 2022->2023,55,0.0899,0.6437
-catboost,temporal 2018->2022 => 2022->2023,55,0.1884,0.462
-persistence,GroupKFold(5) 500m blocks,635,0.1379,0.847
-linear_extrap,GroupKFold(5) 500m blocks,635,0.1409,0.8454
-ridge,GroupKFold(5) 500m blocks,635,0.1435,0.4686
-catboost,GroupKFold(5) 500m blocks,635,0.1849,0.4374
+approach,scheme,n_test,r2,mae,coverage
+persistence,temporal 2018->2022 => 2022->2023,55,0.5984,0.3711,
+linear_extrap,temporal 2018->2022 => 2022->2023,55,0.4737,0.3463,
+ridge,temporal 2018->2022 => 2022->2023,55,0.2496,0.6128,
+catboost,temporal 2018->2022 => 2022->2023,55,0.4922,0.3811,
+persistence,GroupKFold(5) 500m blocks,635,0.1491,0.8366,
+linear_extrap,GroupKFold(5) 500m blocks,635,0.1517,0.8344,
+ridge,GroupKFold(5) 500m blocks,635,0.1579,0.4577,
+catboost,GroupKFold(5) 500m blocks,635,0.1976,0.4331,
+catboost_p10_p90_raw,temporal 2018->2022 => 2022->2023,55,,,0.5818
+catboost_p10_p90_k=1.5,temporal 2018->2022 => 2022->2023,55,,,0.8

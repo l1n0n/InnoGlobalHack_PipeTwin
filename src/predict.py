@@ -4,7 +4,7 @@ import pandas as pd
 
 from config import CACHE, REPORTS, ROOT, TARGET_IDS, WT_NOM
 from segment import segment_grid
-from train import fit_catboost, predict_interval, predict_thk
+from train import fit_catboost, predict_interval, predict_thk, widen
 
 
 def main():
@@ -14,6 +14,7 @@ def main():
 
     p50 = np.clip(predict_thk(fit_catboost(lab), tgt), 0.01, WT_NOM)
     lo, hi = predict_interval(lab, tgt)
+    lo, hi = widen(p50, lo, hi, float((CACHE / "interval_k.txt").read_text()))  # калибровка на валидации
     lo, hi = np.clip(np.minimum(lo, p50), 0.01, WT_NOM), np.clip(np.maximum(hi, p50), 0.01, WT_NOM)
 
     res = pd.DataFrame({"id": tgt["id"].values, "segment_id": tgt["segment_id"].values,
